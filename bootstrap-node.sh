@@ -198,24 +198,30 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     log_info "Installing gRPC tools..."
     echo -e "${YELLOW}[NOTE] Compiling from source to match local GLIBC. This can take up to 60 mins.${NC}"
     
-    # --- MEMORY SAVING FLAGS FOR GCC (BBB ONLY) ---
+    # --- GRPCIO INSTALLATION LOGIC ---
     if [ "$ARCH" != "aarch64" ]; then
-        log_info "BBB detected: Applying strict memory limits for GCC compilation..."
+        log_info "BBB detected: Applying strict memory limits and compiling from source..."
         
         # 1. Force single-threaded compilation
         export GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS=1
         
-        # 2. -g0 strips debug symbols (massive RAM savings)
+        # 2. -g0 strips debug symbols (massive RAM/Disk savings)
         # 3. ggc-min-expand forces GCC to garbage-collect its own memory aggressively
         export CFLAGS="-g0 -O2 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"
         export CXXFLAGS="-g0 -O2 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"
+        
+        # Install forcing source build for BBB architecture
+        pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
+
+        # Unset the flags so they don't affect future commands
+        unset GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS CFLAGS CXXFLAGS
+    else
+        log_info "BB-AI64 (aarch64) detected: Using pre-compiled binary wheels..."
+        
+        # Standard install allowing pre-compiled binaries (bypasses the disk space crash)
+        pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     fi
-    
-    pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
-    
-    # Unset the flags so they don't affect future commands
-    unset GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS CFLAGS CXXFLAGS
-    
+        
     # Cleanup build environment and turn off swap
     if [ -n "$TMPDIR" ]; then rm -rf "$TMPDIR"; fi
     unset TMPDIR
