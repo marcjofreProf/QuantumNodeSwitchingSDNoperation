@@ -33,40 +33,49 @@ This circuit-switched data plane achieves physical switching delays ranging from
 
 A bootstrap script is provided to instantly configure a fresh BeagleBone Black with the required dependencies, GPIO libraries, gRPC tooling, and folder structure.
 
+**1. Clone the repository on the BeagleBone Black**
 ```bash
-# 1. Clone the repository on the BeagleBone Black
-git clone https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git
+git clone [https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git](https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git)
 cd QuantumNodeSwitchingSDNoperation
+```
 
-# 2. Make the bootstrap script executable
+**2. Make the bootstrap script executable**
+```bash
 sudo chmod +x ./bootstrap-node.sh
+```
 
-# 3. Run the setup (requires sudo privileges)
+**3. Run the setup (requires sudo privileges)**
+```bash
 ./bootstrap-node.sh
+```
 
-Note on Storage: Insert sdcard after the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
+> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
 
-Note on BBB apt repositories: In /home/debian/, create the directory Scripts (mkdir Scripts). Then, download the repository:
-# Note for apt and apt-get 
-# sudo nano /etc/apt/sources.list
+> **Note on BBB apt repositories:** In `/home/debian/`, create the directory `Scripts` (`mkdir Scripts`). Then, download the repository.
+> 
+> If you experience issues with `apt` and `apt-get`, edit your sources list (`sudo nano /etc/apt/sources.list`) to match the following archive mirrors for Debian Buster:
 
-deb http://archive.debian.org/debian buster main contrib non-free
-#deb-src http://deb.debian.org/debian buster main contrib non-free
+```text
+deb [http://archive.debian.org/debian](http://archive.debian.org/debian) buster main contrib non-free
+#deb-src [http://deb.debian.org/debian](http://deb.debian.org/debian) buster main contrib non-free
 
-#deb http://security.debian.org/debian-security buster/updates main contrib non-free
-#deb-src http://security.debian.org/debian-security buster/updates main contrib non-free
+#deb [http://security.debian.org/debian-security](http://security.debian.org/debian-security) buster/updates main contrib non-free
+#deb-src [http://security.debian.org/debian-security](http://security.debian.org/debian-security) buster/updates main contrib non-free
 
-deb http://archive.debian.org/debian buster-updates main contrib non-free
-#deb-src http://deb.debian.org/debian buster-updates main contrib non-free
+deb [http://archive.debian.org/debian](http://archive.debian.org/debian) buster-updates main contrib non-free
+#deb-src [http://deb.debian.org/debian](http://deb.debian.org/debian) buster-updates main contrib non-free
 
-#Kernel source (repos.rcn-ee.com) : https://github.com/RobertCNelson/linux-stable-rcn-ee
+#Kernel source (repos.rcn-ee.com) : [https://github.com/RobertCNelson/linux-stable-rcn-ee](https://github.com/RobertCNelson/linux-stable-rcn-ee)
 #
-#git clone https://github.com/RobertCNelson/linux-stable-rcn-ee
+#git clone [https://github.com/RobertCNelson/linux-stable-rcn-ee](https://github.com/RobertCNelson/linux-stable-rcn-ee)
 #cd ./linux-stable-rcn-ee
 #git checkout `uname -r` -b tmp
-deb [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] http://repos.rcn-ee.com/debian/ buster main
-#deb-src [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] http://repos.rcn-ee.com/debian/ buster main
 
+deb [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] [http://repos.rcn-ee.com/debian/](http://repos.rcn-ee.com/debian/) buster main
+#deb-src [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] [http://repos.rcn-ee.com/debian/](http://repos.rcn-ee.com/debian/) buster main
+```
+
+---
 
 ## Manual Hardware Testing
 
@@ -78,22 +87,39 @@ Ensure your `driver/pin_mappings.json` is correctly configured for your specific
 
 ```bash
 sudo ./venv/bin/python3 ./test/test_manual_switching_hardware.py
+```
+
+---
 
 ## Running the gNOI Agent
-The gNOI Agent (agent/gnoi_agent.py) is the brain of the node. It hosts a gRPC server (default port 50051) that listens for network commands from the SDN orchestrator and translates them into physical hardware actions via the driver.
 
-## Automatic Execution (Recommended)
-During the execution of bootstrap-node.sh, a Systemd service is automatically generated. The agent will run in the background and start automatically on boot.
+The gNOI Agent (`agent/gnoi_agent.py`) is the brain of the node. It hosts a gRPC server (default port `50051`) that listens for network commands from the SDN orchestrator and translates them into physical hardware actions via the driver.
 
-To manage the service, use standard systemctl commands:
+### Automatic Execution (Recommended)
 
+During the execution of `bootstrap-node.sh`, a Systemd service is automatically generated. The agent will run in the background and start automatically on boot.
+
+To manage the service, use standard `systemctl` commands:
+
+```bash
 sudo systemctl status quantum-gnoi-agent
 sudo systemctl restart quantum-gnoi-agent
 sudo systemctl stop quantum-gnoi-agent
+```
 
 To view live network and hardware logs:
 
+```bash
 sudo journalctl -u quantum-gnoi-agent -f
+```
+
+### Manual Execution (For Debugging)
+
+If you need to run the agent interactively to debug gRPC connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
+
+```bash
+sudo ./venv/bin/python3 agent/gnoi_agent.py
+```
 
 Manual Execution (For Debugging)
 If you need to run the agent interactively to debug gRPC connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
