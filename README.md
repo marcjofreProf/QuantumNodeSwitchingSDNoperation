@@ -43,3 +43,5 @@ sudo chmod +x ./bootstrap-node.sh
 
 # 3. Run the setup (requires sudo privileges)
 ./bootstrap-node.sh
+
+Note on Storage: The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
