@@ -167,7 +167,7 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     check_and_install golang-go protobuf-compiler
 
     log_info "Ensuring virtualenv is installed via pip..."
-    sudo pip3 install --no-cache-dir virtualenv
+    sudo pip3 install --default-timeout=1000 --no-cache-dir virtualenv
 
     log_info "Setting up Python virtual environment (./venv)..."
     rm -rf venv
@@ -197,7 +197,7 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     
     log_info "Installing gRPC tools..."
     echo -e "${YELLOW}[NOTE] If compiling from source (BBB), this can take up to 45 mins.${NC}"
-    pip install --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
+    pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
     # Cleanup build environment and turn off swap
     if [ -n "$TMPDIR" ]; then rm -rf "$TMPDIR"; fi
