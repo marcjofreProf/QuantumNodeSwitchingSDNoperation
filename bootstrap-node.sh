@@ -1,7 +1,7 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# Quantum Node Switching - Interactive BBB Bootstrap Script
-# (Features: Smart APT, SD Expansion, Debian Downgrade Fix, 2GB Virtual RAM)
+# Quantum Node Switching - Universal Bootstrap Script
+# (Features: Auto-detects BBB vs BB-AI64, Smart APT, SD Expansion, Virtual RAM)
 # ---------------------------------------------------------------------------
 
 set -e # Exit immediately on error
@@ -50,6 +50,10 @@ check_and_install() {
 
 echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 
+# Detect Architecture
+ARCH=$(uname -m)
+log_info "Detected System Architecture: $ARCH"
+
 # --- Phase 0: Network Configuration ---
 if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallback to 10.0.0.1)?"; then
     log_info "Checking if priority path is already operative..."
@@ -71,23 +75,28 @@ if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallba
     fi
 fi
 
-# --- Phase 1: System Updates & Debian Fix ---
-if prompt_yes_no "Phase 1: Update system and apply Python downgrade fix?"; then
+# --- Phase 1: System Updates & Architecture-Specific Fixes ---
+if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
     log_info "Updating APT package lists..."
     sudo apt-get update -y
     
-    log_info "Scanning and installing base system tools..."
-    check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
-    
-    log_info "Force-aligning Python 3.7 and Dev Headers to resolve Debian repo desync..."
-    sudo apt-get install -y --allow-downgrades \
-      python3.7=3.7.3-2+deb10u3 \
-      python3.7-minimal=3.7.3-2+deb10u3 \
-      libpython3.7-stdlib=3.7.3-2+deb10u3 \
-      libpython3.7-minimal=3.7.3-2+deb10u3 \
-      libpython3.7=3.7.3-2+deb10u3 \
-      python3.7-dev=3.7.3-2+deb10u3 \
-      libpython3.7-dev=3.7.3-2+deb10u3
+    if [ "$ARCH" = "aarch64" ]; then
+        log_info "64-bit architecture (BB-AI64) detected. Installing standard Python 3 packages..."
+        check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
+    else
+        log_info "32-bit architecture (BBB) detected. Installing base tools..."
+        check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
+        
+        log_warn "Applying Debian Buster downgrade fix for BBB python3-dev..."
+        sudo apt-get install -y --allow-downgrades \
+          python3.7=3.7.3-2+deb10u3 \
+          python3.7-minimal=3.7.3-2+deb10u3 \
+          libpython3.7-stdlib=3.7.3-2+deb10u3 \
+          libpython3.7-minimal=3.7.3-2+deb10u3 \
+          libpython3.7=3.7.3-2+deb10u3 \
+          python3.7-dev=3.7.3-2+deb10u3 \
+          libpython3.7-dev=3.7.3-2+deb10u3
+    fi
 fi
 
 # --- Phase 1.5: System Cleanup ---
@@ -102,7 +111,7 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
 fi
 
 # --- Phase 1.8: SD Card Expansion & Auto-Format ---
-if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation space & logs?"; then
+if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for logs/compilation?"; then
     SD_DISK="/dev/mmcblk0"
     SD_PART="/dev/mmcblk0p1"
     
@@ -141,8 +150,6 @@ if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation s
         
         log_info "Setting permissions for user $USER on SD card..."
         sudo chown -R $USER:$USER /mnt/sdcard
-        
-        df -h /mnt/sdcard
     else
         log_warn "No SD card detected at $SD_DISK."
     fi
@@ -173,21 +180,23 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
         mkdir -p /mnt/sdcard/pip_build_tmp
         export TMPDIR=/mnt/sdcard/pip_build_tmp
         
-        # PROACTIVE FIX: Create 2GB Swap file to prevent RAM OOM crashes during C++ compilation
-        log_info "Creating massive 2GB temporary Swap file on SD Card to prevent memory exhaustion..."
-        sudo fallocate -l 2G /mnt/sdcard/temp_swap
-        sudo chmod 600 /mnt/sdcard/temp_swap
-        sudo mkswap /mnt/sdcard/temp_swap
-        sudo swapon /mnt/sdcard/temp_swap
-        log_success "2GB Swap file activated."
+        # Only provision swap on the 32-bit BBB (it has 512MB RAM). AI-64 has plenty.
+        if [ "$ARCH" != "aarch64" ]; then
+            log_info "BBB detected. Creating 2GB temporary Swap file on SD Card to prevent memory exhaustion..."
+            sudo fallocate -l 2G /mnt/sdcard/temp_swap
+            sudo chmod 600 /mnt/sdcard/temp_swap
+            sudo mkswap /mnt/sdcard/temp_swap
+            sudo swapon /mnt/sdcard/temp_swap
+            log_success "2GB Swap file activated."
+        fi
     else
-        log_warn "No SD Card found. Using eMMC for pip build files (High risk of running out of space and RAM)..."
+        log_warn "No SD Card found. Using root for pip build files."
         mkdir -p $(pwd)/pip_build_tmp
         export TMPDIR=$(pwd)/pip_build_tmp
     fi
     
     log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] Compiling grpcio from source on an ARM CPU can take up to 2 hours.${NC}"
+    echo -e "${YELLOW}[NOTE] If compiling from source (BBB), this can take up to 45 mins.${NC}"
     pip install --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
     # Cleanup build environment and turn off swap
