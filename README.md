@@ -78,3 +78,24 @@ Ensure your `driver/pin_mappings.json` is correctly configured for your specific
 
 ```bash
 sudo ./venv/bin/python3 ./test/test_manual_switching_hardware.py
+
+## Running the gNOI Agent
+The gNOI Agent (agent/gnoi_agent.py) is the brain of the node. It hosts a gRPC server (default port 50051) that listens for network commands from the SDN orchestrator and translates them into physical hardware actions via the driver.
+
+## Automatic Execution (Recommended)
+During the execution of bootstrap-node.sh, a Systemd service is automatically generated. The agent will run in the background and start automatically on boot.
+
+To manage the service, use standard systemctl commands:
+
+sudo systemctl status quantum-gnoi-agent
+sudo systemctl restart quantum-gnoi-agent
+sudo systemctl stop quantum-gnoi-agent
+
+To view live network and hardware logs:
+
+sudo journalctl -u quantum-gnoi-agent -f
+
+Manual Execution (For Debugging)
+If you need to run the agent interactively to debug gRPC connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
+
+sudo ./venv/bin/python3 agent/gnoi_agent.py
