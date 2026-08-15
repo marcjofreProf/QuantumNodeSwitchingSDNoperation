@@ -44,3 +44,19 @@ quantum_logs/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# --- Python Virtual Environment ---
+venv/
+
+# --- Runtime Logs ---
+logs/
+*.log
+
+# --- Python Cache / Compiled Artifacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- IDEs and OS Files ---
+.vscode/
+.DS_Store
