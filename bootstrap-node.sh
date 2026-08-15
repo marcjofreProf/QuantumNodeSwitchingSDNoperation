@@ -1,6 +1,7 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# Quantum Node Switching - Interactive BBB Bootstrap Script (Bypass APT VENV)
+# Quantum Node Switching - Interactive BBB Bootstrap Script
+# (Features: Smart APT, Tiered Net, Cleanup, SD Auto-Format/Expansion)
 # ---------------------------------------------------------------------------
 
 set -e # Exit immediately on error
@@ -29,6 +30,24 @@ prompt_yes_no() {
     done
 }
 
+check_and_install() {
+    local missing_pkgs=()
+    for pkg in "$@"; do
+        if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
+            echo -e "  -> [SKIP] $pkg is already installed."
+        else
+            missing_pkgs+=("$pkg")
+        fi
+    done
+
+    if [ ${#missing_pkgs[@]} -ne 0 ]; then
+        log_info "Installing missing packages: ${missing_pkgs[*]}"
+        sudo apt-get install -y "${missing_pkgs[@]}"
+    else
+        log_success "All requested packages are already present!"
+    fi
+}
+
 echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 
 # --- Phase 0: Network Configuration ---
@@ -53,46 +72,133 @@ if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallba
 fi
 
 # --- Phase 1: System Updates ---
-if prompt_yes_no "Phase 1: Update system packages (apt-get update)?"; then
-    log_info "Updating package lists..."
+if prompt_yes_no "Phase 1: Update and install base system packages?"; then
+    log_info "Updating APT package lists..."
     sudo apt-get update -y
     
-    log_info "Installing system tools..."
-    # Note: python3-venv is REMOVED from this list to prevent the deb10u5 error
-    sudo apt-get install -y build-essential git curl wget jq systemd python3-pip
-    log_success "System tools updated."
+    log_info "Scanning and installing base system tools..."
+    # Added 'parted' and 'util-linux' for SD card formatting
+    check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
+fi
+
+# --- Phase 1.5: System Cleanup ---
+if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
+    log_info "Removing orphaned/unnecessary APT packages..."
+    sudo apt-get autoremove -y
+    sudo apt-get clean
+    log_info "Clearing local PIP caches..."
+    rm -rf ~/.cache/pip
+    sudo rm -rf /root/.cache/pip
+    log_success "System cleanup complete. Storage freed."
+fi
+
+# --- Phase 1.8: SD Card Expansion & Auto-Format ---
+if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation space & logs?"; then
+    SD_DISK="/dev/mmcblk0"
+    SD_PART="/dev/mmcblk0p1"
+    
+    if [ -b "$SD_DISK" ]; then
+        log_info "Detected SD Card hardware at $SD_DISK."
+        
+        # Check if the partition is correctly formatted as ext4
+        if ! sudo blkid $SD_PART | grep -q "ext4"; then
+            log_warn "SD Card is NOT formatted as ext4 or partition is missing."
+            if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
+                log_info "Formatting $SD_DISK to ext4..."
+                # Unmount in case it's auto-mounted with the wrong format
+                sudo umount $SD_PART 2>/dev/null || true
+                
+                # Create a new partition table and format
+                sudo parted -s $SD_DISK mklabel msdos
+                sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
+                sudo partprobe $SD_DISK
+                sleep 2 # Wait for OS to register new partition
+                sudo mkfs.ext4 -F $SD_PART
+                log_success "SD Card successfully formatted."
+            else
+                log_warn "Skipping format. SD Card features may not work if not properly formatted."
+            fi
+        else
+            log_success "SD Card partition $SD_PART is properly formatted as ext4."
+        fi
+
+        # Mount the SD Card
+        sudo mkdir -p /mnt/sdcard
+        if ! mountpoint -q /mnt/sdcard; then
+            log_info "Mounting SD card to /mnt/sdcard..."
+            sudo mount $SD_PART /mnt/sdcard || log_error "Failed to mount $SD_PART."
+            
+            # Make the mount persistent across reboots
+            if ! grep -q "$SD_PART /mnt/sdcard" /etc/fstab; then
+                echo "$SD_PART /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
+                log_success "Added SD card to /etc/fstab for persistent booting."
+            fi
+        else
+            log_success "SD card is already mounted at /mnt/sdcard."
+        fi
+        df -h /mnt/sdcard
+    else
+        log_warn "No SD card detected at $SD_DISK. Insert a card if you want to expand storage."
+    fi
 fi
 
 # --- Phase 2: Hardware / GPIO Libraries ---
 if prompt_yes_no "Phase 2: Install GPIO control libraries (libgpiod)?"; then
-    log_info "Installing libgpiod..."
-    sudo apt-get install -y gpiod libgpiod-dev python3-libgpiod
-    log_success "GPIO libraries installed."
+    log_info "Scanning and installing libgpiod..."
+    check_and_install gpiod libgpiod-dev python3-libgpiod
 fi
 
-# --- Phase 3: gRPC, Protobuf, and VirtualEnv (THE FIX) ---
+# --- Phase 3: gRPC, Protobuf, and VirtualEnv ---
 if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; then
-    log_info "Installing gRPC and Protocol Buffers..."
-    sudo apt-get install -y golang-go protobuf-compiler
+    log_info "Scanning and installing C++ dependencies..."
+    check_and_install golang-go protobuf-compiler
 
-    log_info "Installing VirtualEnv via PIP (Bypassing broken APT packages)..."
-    sudo pip3 install virtualenv
+    log_info "Ensuring virtualenv is installed via pip..."
+    sudo pip3 install --no-cache-dir virtualenv
 
     log_info "Setting up Python virtual environment (./venv)..."
     rm -rf venv
-    virtualenv venv  # Using virtualenv instead of python3 -m venv
-    
+    virtualenv venv
     source venv/bin/activate
     pip install --upgrade pip
-    pip install grpcio grpcio-tools protobuf
+    
+    # DYNAMIC TMPDIR: Check if SD card is available for compilation
+    if mountpoint -q /mnt/sdcard; then
+        log_success "SD Card found! Routing massive pip build files to /mnt/sdcard/pip_build_tmp..."
+        mkdir -p /mnt/sdcard/pip_build_tmp
+        export TMPDIR=/mnt/sdcard/pip_build_tmp
+    else
+        log_warn "No SD Card found. Using eMMC for pip build files (High risk of running out of space)..."
+        mkdir -p $(pwd)/pip_build_tmp
+        export TMPDIR=$(pwd)/pip_build_tmp
+    fi
+    
+    log_info "Installing gRPC tools..."
+    echo -e "${YELLOW}[NOTE] If a pre-compiled ARM wheel is not found, this may take up to 45 mins to compile on the BBB. Please wait.${NC}"
+    pip install --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
+    
+    # Cleanup build environment
+    if [ -n "$TMPDIR" ]; then rm -rf "$TMPDIR"; fi
+    unset TMPDIR
     deactivate
+    
     log_success "gRPC and Python environment ready."
 fi
 
 # --- Phase 4: Scaffold Repository Structure ---
 if prompt_yes_no "Phase 4: Generate/Reset directory structure and configs?"; then
     log_info "Creating node-level folder structure..."
-    mkdir -p agent driver proto systemd logs
+    mkdir -p agent driver proto systemd
+    
+    # DYNAMIC LOGS: Offload logging to SD card to save eMMC wear and tear
+    if mountpoint -q /mnt/sdcard; then
+        log_success "SD Card found! Symlinking agent logs to /mnt/sdcard/quantum_logs..."
+        mkdir -p /mnt/sdcard/quantum_logs
+        rm -rf logs
+        ln -sfn /mnt/sdcard/quantum_logs logs
+    else
+        mkdir -p logs
+    fi
 
     log_info "Generating default pin_mappings.json..."
     cat <<EOF > driver/pin_mappings.json
