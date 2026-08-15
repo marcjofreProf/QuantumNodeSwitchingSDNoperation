@@ -1,7 +1,7 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
 # Quantum Node Switching - Interactive BBB Bootstrap Script
-# (Features: Smart APT, Tiered Net, Cleanup, SD Auto-Format/Expansion)
+# (Features: Smart APT, SD Expansion, Debian Downgrade Fix, 2GB Virtual RAM)
 # ---------------------------------------------------------------------------
 
 set -e # Exit immediately on error
@@ -54,7 +54,7 @@ echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallback to 10.0.0.1)?"; then
     log_info "Checking if priority path is already operative..."
     if ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
-        log_success "External connectivity verified (Preserving ETSI MANO path)."
+        log_success "External connectivity verified."
     else
         log_warn "Ping check failed. Attempting fallback to 10.0.0.1..."
         if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
@@ -71,8 +71,8 @@ if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallba
     fi
 fi
 
-# --- Phase 1: System Updates ---
-if prompt_yes_no "Phase 1: Update and install base system packages?"; then
+# --- Phase 1: System Updates & Debian Fix ---
+if prompt_yes_no "Phase 1: Update system and apply Python downgrade fix?"; then
     log_info "Updating APT package lists..."
     sudo apt-get update -y
     
@@ -109,13 +109,11 @@ if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation s
     if [ -b "$SD_DISK" ]; then
         log_info "Detected SD Card hardware at $SD_DISK."
         
-        # Check if the partition is correctly formatted as ext4
         if ! sudo blkid $SD_PART | grep -q "ext4"; then
             log_warn "SD Card is NOT formatted as ext4 or partition is missing."
             if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
                 log_info "Formatting $SD_DISK to ext4..."
                 sudo umount $SD_PART 2>/dev/null || true
-                
                 sudo parted -s $SD_DISK mklabel msdos
                 sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
                 sudo partprobe $SD_DISK
@@ -123,34 +121,30 @@ if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation s
                 sudo mkfs.ext4 -F $SD_PART
                 log_success "SD Card successfully formatted."
             else
-                log_warn "Skipping format. SD Card features may not work if not properly formatted."
+                log_warn "Skipping format."
             fi
         else
             log_success "SD Card partition $SD_PART is properly formatted as ext4."
         fi
 
-        # Mount the SD Card
         sudo mkdir -p /mnt/sdcard
         if ! mountpoint -q /mnt/sdcard; then
             log_info "Mounting SD card to /mnt/sdcard..."
             sudo mount $SD_PART /mnt/sdcard || log_error "Failed to mount $SD_PART."
-            
-            # Make the mount persistent across reboots
             if ! grep -q "$SD_PART /mnt/sdcard" /etc/fstab; then
                 echo "$SD_PART /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
-                log_success "Added SD card to /etc/fstab for persistent booting."
+                log_success "Added SD card to /etc/fstab."
             fi
         else
             log_success "SD card is already mounted at /mnt/sdcard."
         fi
         
-        # --- THE FIX: Grant current user ownership of the SD Card ---
         log_info "Setting permissions for user $USER on SD card..."
         sudo chown -R $USER:$USER /mnt/sdcard
         
         df -h /mnt/sdcard
     else
-        log_warn "No SD card detected at $SD_DISK. Insert a card if you want to expand storage."
+        log_warn "No SD card detected at $SD_DISK."
     fi
 fi
 
@@ -174,26 +168,39 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     source venv/bin/activate
     pip install --upgrade pip
     
-    # DYNAMIC TMPDIR: Check if SD card is available for compilation
     if mountpoint -q /mnt/sdcard; then
-        log_success "SD Card found! Routing massive pip build files to /mnt/sdcard/pip_build_tmp..."
+        log_success "SD Card found! Routing pip build files to /mnt/sdcard/pip_build_tmp..."
         mkdir -p /mnt/sdcard/pip_build_tmp
         export TMPDIR=/mnt/sdcard/pip_build_tmp
+        
+        # PROACTIVE FIX: Create 2GB Swap file to prevent RAM OOM crashes during C++ compilation
+        log_info "Creating massive 2GB temporary Swap file on SD Card to prevent memory exhaustion..."
+        sudo fallocate -l 2G /mnt/sdcard/temp_swap
+        sudo chmod 600 /mnt/sdcard/temp_swap
+        sudo mkswap /mnt/sdcard/temp_swap
+        sudo swapon /mnt/sdcard/temp_swap
+        log_success "2GB Swap file activated."
     else
-        log_warn "No SD Card found. Using eMMC for pip build files (High risk of running out of space)..."
+        log_warn "No SD Card found. Using eMMC for pip build files (High risk of running out of space and RAM)..."
         mkdir -p $(pwd)/pip_build_tmp
         export TMPDIR=$(pwd)/pip_build_tmp
     fi
     
     log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] If a pre-compiled ARM wheel is not found, this may take up to 45 mins to compile on the BBB. Please wait.${NC}"
+    echo -e "${YELLOW}[NOTE] Compiling grpcio from source on an ARM CPU can take up to 45 mins. Grab a coffee.${NC}"
     pip install --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
-    # Cleanup build environment
+    # Cleanup build environment and turn off swap
     if [ -n "$TMPDIR" ]; then rm -rf "$TMPDIR"; fi
     unset TMPDIR
-    deactivate
     
+    if mountpoint -q /mnt/sdcard && [ -f /mnt/sdcard/temp_swap ]; then
+        log_info "Deactivating and removing 2GB temporary swap file..."
+        sudo swapoff /mnt/sdcard/temp_swap
+        sudo rm /mnt/sdcard/temp_swap
+    fi
+    
+    deactivate
     log_success "gRPC and Python environment ready."
 fi
 
@@ -202,7 +209,6 @@ if prompt_yes_no "Phase 4: Generate/Reset directory structure and configs?"; the
     log_info "Creating node-level folder structure..."
     mkdir -p agent driver proto systemd
     
-    # DYNAMIC LOGS: Offload logging to SD card to save eMMC wear and tear
     if mountpoint -q /mnt/sdcard; then
         log_success "SD Card found! Symlinking agent logs to /mnt/sdcard/quantum_logs..."
         mkdir -p /mnt/sdcard/quantum_logs
@@ -253,11 +259,10 @@ EOF
     log_info "Linking to /etc/systemd/system/..."
     sudo ln -sf $(pwd)/systemd/quantum-gnoi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
     sudo systemctl daemon-reload
-    log_success "Systemd service configured (requires start/enable)."
+    log_success "Systemd service configured."
 fi
 
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Bootstrap Execution Complete! ${NC}"
 echo -e "To tail live agent logs: ${YELLOW}tail -f logs/agent.log${NC}"
-echo -e "Or use journalctl: ${YELLOW}journalctl -u quantum-gnoi-agent -f${NC}"
 echo -e "${GREEN}====================================================${NC}"
