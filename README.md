@@ -48,8 +48,21 @@ Note on Storage: Insert sdcard after the system has booted. The bootstrap script
 
 Note on BBB apt repositories: In /home/debian/, create the directory Scripts (mkdir Scripts). Then, download the repository:
 # Note for apt and apt-get 
-# sudo nano /etc/apt/sources.list 
-# Change the first three repositories urls for 
-# deb http://archive.debian.org/debian buster main 
-# deb http://archive.debian.org/debian buster-updates main 
-# deb http://security.debian.org/debian-security buster/updates main 
+# sudo nano /etc/apt/sources.list
+
+deb http://archive.debian.org/debian buster main contrib non-free
+#deb-src http://deb.debian.org/debian buster main contrib non-free
+
+#deb http://security.debian.org/debian-security buster/updates main contrib non-free
+#deb-src http://security.debian.org/debian-security buster/updates main contrib non-free
+
+deb http://archive.debian.org/debian buster-updates main contrib non-free
+#deb-src http://deb.debian.org/debian buster-updates main contrib non-free
+
+#Kernel source (repos.rcn-ee.com) : https://github.com/RobertCNelson/linux-stable-rcn-ee
+#
+#git clone https://github.com/RobertCNelson/linux-stable-rcn-ee
+#cd ./linux-stable-rcn-ee
+#git checkout `uname -r` -b tmp
+deb [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] http://repos.rcn-ee.com/debian/ buster main
+#deb-src [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] http://repos.rcn-ee.com/debian/ buster main
