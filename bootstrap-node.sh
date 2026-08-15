@@ -111,7 +111,7 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
 fi
 
 # --- Phase 1.8: SD Card Expansion & Auto-Format ---
-if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for logs/compilation?"; then
+if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for logs/compilation (for BBB press y; for BB-AI64 press n)?"; then
     SD_DISK="/dev/mmcblk0"
     SD_PART="/dev/mmcblk0p1"
     
@@ -196,7 +196,7 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     fi
     
     log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] Compiling from source (BBB) to match local GLIBC. This can take up to 60 mins.${NC}"
+    echo -e "${YELLOW}[NOTE] Compiling from source to match local GLIBC. This can take up to 60 mins.${NC}"
     pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
     # Cleanup build environment and turn off swap
