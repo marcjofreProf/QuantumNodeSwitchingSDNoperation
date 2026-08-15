@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# Quantum Node Switching - Interactive BBB Bootstrap Script (Fix: PERSISTENT ERRORS)
+# Quantum Node Switching - Interactive BBB Bootstrap Script (Bypass APT VENV)
 # ---------------------------------------------------------------------------
 
 set -e # Exit immediately on error
@@ -22,105 +22,69 @@ prompt_yes_no() {
     while true; do
         read -p "$1 [y/N]: " yn
         case $yn in
-            [Yy]* ) return 0;; # True
-            [Nn]* | "" ) return 1;; # False (Default)
+            [Yy]* ) return 0;;
+            [Nn]* | "" ) return 1;;
             * ) echo "Please answer yes or no.";;
         esac
     done
 }
 
-echo -e "${YELLOW}=== Quantum Node Switching Agent Setup (Fix: Persistent Errors) ===${NC}"
+echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 
-# ===========================================================================
-# PHASE 0: Tiered Internet Check (Fix Logic: preserve priority path)
-# This implements the logic from Guide 1 in image_2.png
-# ===========================================================================
+# --- Phase 0: Network Configuration ---
 if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallback to 10.0.0.1)?"; then
-    log_info "Phase 0: Checking if priority path is already operative..."
-    
-    # Check if we can already reach the internet (e.g., Google DNS)
+    log_info "Checking if priority path is already operative..."
     if ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
-        log_success "External connectivity verified. Internet is already operative (Preserving ETSI MANO path)."
+        log_success "External connectivity verified (Preserving ETSI MANO path)."
     else
-        log_warn "Ping check failed. Priority path inoperative."
-        log_info "Executing fallback command to add default gateway via 10.0.0.1..."
-        
-        # Check if we can at least reach 10.0.0.1
+        log_warn "Ping check failed. Attempting fallback to 10.0.0.1..."
         if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
             sudo ip route add default via 10.0.0.1 || true
             log_success "Fallback default route via 10.0.0.1 added."
         else
-            log_error "Gateway 10.0.0.1 not reachable. Cannot add fallback gateway."
-            log_warn "You must configure sharing from your host computer now or you will have no internet."
+            log_error "Gateway 10.0.0.1 not reachable. You may lack internet."
         fi
     fi
 
-    # Update DNS if pinging 8.8.8.8 works but apt-get still fails
     if ! grep -q "8.8.8.8" /etc/resolv.conf; then
-        log_info "Ensuring DNS is set to 8.8.8.8 in /etc/resolv.conf..."
         echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
-        log_success "Resolv.conf updated."
+        log_success "Resolv.conf updated with public DNS."
     fi
 fi
-# ===========================================================================
-
-# ===========================================================================
-# NEW: PHASE 0.5: Buster Version Mismatch Fix (Aggressive)
-# This implements the exact fix sequence from Guide 2 in image_2.png
-# Select 'y' for this if Phase 1 previously failed with python3.7 version errors.
-# ===========================================================================
-if prompt_yes_no "Phase 0.5: Run aggressive Buster mismatch fix (rm apt lists, dist-upgrade, force install venv)?"; then
-    log_info "Phase 0.5: Executing aggressive fix sequence from Guide 2 (image_2.png)..."
-    
-    log_info "1. Wiping stale apt lists and local repository cache..."
-    # Force clean repo state and local files
-    sudo rm -rf /var/lib/apt/lists/* && sudo apt-get clean
-    
-    log_info "2. Re-downloading fresh repository meta-data..."
-    sudo apt-get update
-    
-    log_info "3. Performing Buster FULL sync (dist-upgrade) to align version drift..."
-    # Standard standard fix for parent/child version drift errors
-    sudo apt-get dist-upgrade -y
-    
-    log_info "4. Confiming dependency path by explicitly installing python3.7-venv..."
-    # This confirm install checks that the dependency tree is synced
-    sudo apt-get install -y -f python3.7-venv
-    
-    log_success "Phase 0.5: Parent packages synchronized, and dependency tree fixed. Main installation should succeed."
-fi
-# ===========================================================================
 
 # --- Phase 1: System Updates ---
 if prompt_yes_no "Phase 1: Update system packages (apt-get update)?"; then
     log_info "Updating package lists..."
     sudo apt-get update -y
     
-    log_info "Installing system tools and main dependencies..."
-    # Full Buster system tools + python3 tools (Buster base)
-    sudo apt-get install -y build-essential git curl wget jq systemd python3-pip python3-venv
+    log_info "Installing system tools..."
+    # Note: python3-venv is REMOVED from this list to prevent the deb10u5 error
+    sudo apt-get install -y build-essential git curl wget jq systemd python3-pip
     log_success "System tools updated."
 fi
 
 # --- Phase 2: Hardware / GPIO Libraries ---
-if prompt_yes_no "Phase 2: Install/Reinstall libgpiod libraries?"; then
+if prompt_yes_no "Phase 2: Install GPIO control libraries (libgpiod)?"; then
     log_info "Installing libgpiod..."
     sudo apt-get install -y gpiod libgpiod-dev python3-libgpiod
     log_success "GPIO libraries installed."
 fi
 
-# --- Phase 3: gRPC, Protobuf, and Agent Tooling ---
-if prompt_yes_no "Phase 3: Install/Reinstall gRPC, Protobuf, and Python venv?"; then
+# --- Phase 3: gRPC, Protobuf, and VirtualEnv (THE FIX) ---
+if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; then
     log_info "Installing gRPC and Protocol Buffers..."
     sudo apt-get install -y golang-go protobuf-compiler
 
+    log_info "Installing VirtualEnv via PIP (Bypassing broken APT packages)..."
+    sudo pip3 install virtualenv
+
     log_info "Setting up Python virtual environment (./venv)..."
-    # Overwrite venv if re-deploying
     rm -rf venv
-    python3 -m venv venv
+    virtualenv venv  # Using virtualenv instead of python3 -m venv
+    
     source venv/bin/activate
-    pip3 install --upgrade pip
-    pip3 install grpcio grpcio-tools protobuf
+    pip install --upgrade pip
+    pip install grpcio grpcio-tools protobuf
     deactivate
     log_success "gRPC and Python environment ready."
 fi
@@ -158,11 +122,9 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=$(pwd)
-# ExecStart points to the agent within the VENV
 ExecStart=$(pwd)/venv/bin/python3 $(pwd)/agent/main.py
 Restart=on-failure
 RestartSec=5
-# Output redirection using append to logs folder artifact
 StandardOutput=append:$(pwd)/logs/agent.log
 StandardError=append:$(pwd)/logs/agent.log
 
@@ -171,7 +133,6 @@ WantedBy=multi-user.target
 EOF
 
     log_info "Linking to /etc/systemd/system/..."
-    # Linking ensures the service artifact updates when redeployed
     sudo ln -sf $(pwd)/systemd/quantum-gnoi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
     sudo systemctl daemon-reload
     log_success "Systemd service configured (requires start/enable)."
@@ -179,7 +140,6 @@ fi
 
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Bootstrap Execution Complete! ${NC}"
-echo -e "Follow the fix guide shown previously if needed."
 echo -e "To tail live agent logs: ${YELLOW}tail -f logs/agent.log${NC}"
 echo -e "Or use journalctl: ${YELLOW}journalctl -u quantum-gnoi-agent -f${NC}"
 echo -e "${GREEN}====================================================${NC}"
