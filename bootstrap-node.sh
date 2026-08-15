@@ -77,8 +77,8 @@ if prompt_yes_no "Phase 1: Update and install base system packages?"; then
     sudo apt-get update -y
     
     log_info "Scanning and installing base system tools..."
-    # Added 'parted' and 'util-linux' for SD card formatting
-    check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
+    # Added 'python3-dev' to provide Python.h for C++ compilation
+    check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
 fi
 
 # --- Phase 1.5: System Cleanup ---
