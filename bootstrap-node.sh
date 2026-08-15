@@ -171,9 +171,9 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
 
     log_info "Setting up Python virtual environment (./venv)..."
     rm -rf venv
-    virtualenv venv
+    virtualenv --system-site-packages venv
     source venv/bin/activate
-    pip install --upgrade pip
+    pip install --default-timeout=1000 --upgrade pip
     
     if mountpoint -q /mnt/sdcard; then
         log_success "SD Card found! Routing pip build files to /mnt/sdcard/pip_build_tmp..."
