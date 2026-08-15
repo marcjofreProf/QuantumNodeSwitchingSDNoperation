@@ -213,10 +213,10 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     log_success "gRPC and Python environment ready."
 fi
 
-# --- Phase 4: Scaffold Repository Structure ---
-if prompt_yes_no "Phase 4: Generate/Reset directory structure and configs?"; then
+# --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
+if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?"; then
     log_info "Creating node-level folder structure..."
-    mkdir -p agent driver proto systemd
+    mkdir -p agent driver proto systemd test
     
     if mountpoint -q /mnt/sdcard; then
         log_success "SD Card found! Symlinking agent logs to /mnt/sdcard/quantum_logs..."
@@ -240,7 +240,40 @@ if prompt_yes_no "Phase 4: Generate/Reset directory structure and configs?"; the
   "logic_level": "TTL_3V3_to_5V_Isolated"
 }
 EOF
-    log_success "Directories and configurations created."
+
+    log_info "Generating gNOI Protobuf definition (proto/quantum_switch.proto)..."
+    cat <<EOF > proto/quantum_switch.proto
+syntax = "proto3";
+
+package quantum.switch.v1;
+
+service QuantumSwitchService {
+  rpc SetCrossConnect (CrossConnectRequest) returns (CrossConnectResponse);
+  rpc GetCrossConnectStatus (StatusRequest) returns (StatusResponse);
+}
+
+message CrossConnectRequest {
+  bool state = 1; // true = CONNECTED, false = DISCONNECTED
+}
+
+message CrossConnectResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  bool is_connected = 1;
+  string switch_type = 2;
+}
+EOF
+
+    log_info "Compiling gRPC Python stubs..."
+    touch proto/__init__.py
+    ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_switch.proto
+    
+    log_success "Directories, configurations, and Protobufs successfully created."
 fi
 
 # --- Phase 5: Systemd Service Scaffold ---
