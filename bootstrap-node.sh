@@ -77,8 +77,17 @@ if prompt_yes_no "Phase 1: Update and install base system packages?"; then
     sudo apt-get update -y
     
     log_info "Scanning and installing base system tools..."
-    # Added 'python3-dev' to provide Python.h for C++ compilation
-    check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
+    check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
+    
+    log_info "Force-aligning Python 3.7 and Dev Headers to resolve Debian repo desync..."
+    sudo apt-get install -y --allow-downgrades \
+      python3.7=3.7.3-2+deb10u3 \
+      python3.7-minimal=3.7.3-2+deb10u3 \
+      libpython3.7-stdlib=3.7.3-2+deb10u3 \
+      libpython3.7-minimal=3.7.3-2+deb10u3 \
+      libpython3.7=3.7.3-2+deb10u3 \
+      python3.7-dev=3.7.3-2+deb10u3 \
+      libpython3.7-dev=3.7.3-2+deb10u3
 fi
 
 # --- Phase 1.5: System Cleanup ---
