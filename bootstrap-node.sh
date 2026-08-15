@@ -121,7 +121,7 @@ else
         SD_PART="/dev/mmcblk0p1"
         
         # Pause and wait for the user to insert the SD card if it's not already there
-        while [ ! -b "$SD_DISK" ]; then
+        while [ ! -b "$SD_DISK" ]; do
             echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
             read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
             if [ "$sd_input" = "skip" ]; then
