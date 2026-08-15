@@ -111,47 +111,64 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
 fi
 
 # --- Phase 1.8: SD Card Expansion & Auto-Format ---
-if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for logs/compilation (for BBB press y; for BB-AI64 press n)?"; then
-    SD_DISK="/dev/mmcblk0"
-    SD_PART="/dev/mmcblk0p1"
+if [ "$ARCH" = "aarch64" ]; then
+    log_info "Phase 1.8: BB-AI64 detected. SD Card setup is not required. Skipping..."
+else
+    log_info "Phase 1.8: BBB detected. An SD card is REQUIRED for logs and compilation space."
     
-    if [ -b "$SD_DISK" ]; then
-        log_info "Detected SD Card hardware at $SD_DISK."
+    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card?"; then
+        SD_DISK="/dev/mmcblk0"
+        SD_PART="/dev/mmcblk0p1"
         
-        if ! sudo blkid $SD_PART | grep -q "ext4"; then
-            log_warn "SD Card is NOT formatted as ext4 or partition is missing."
-            if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
-                log_info "Formatting $SD_DISK to ext4..."
-                sudo umount $SD_PART 2>/dev/null || true
-                sudo parted -s $SD_DISK mklabel msdos
-                sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
-                sudo partprobe $SD_DISK
-                sleep 2
-                sudo mkfs.ext4 -F $SD_PART
-                log_success "SD Card successfully formatted."
+        # Pause and wait for the user to insert the SD card if it's not already there
+        while [ ! -b "$SD_DISK" ]; then
+            echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
+            read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
+            if [ "$sd_input" = "skip" ]; then
+                log_warn "Skipping SD card setup. Warning: Compilation may fail due to lack of space!"
+                break
+            fi
+            sleep 2 # Give the OS time to register the block device
+        done
+        
+        if [ -b "$SD_DISK" ]; then
+            log_info "Detected SD Card hardware at $SD_DISK."
+            
+            if ! sudo blkid $SD_PART | grep -q "ext4"; then
+                log_warn "SD Card is NOT formatted as ext4 or partition is missing."
+                if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
+                    log_info "Formatting $SD_DISK to ext4..."
+                    sudo umount $SD_PART 2>/dev/null || true
+                    sudo parted -s $SD_DISK mklabel msdos
+                    sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
+                    sudo partprobe $SD_DISK
+                    sleep 2
+                    sudo mkfs.ext4 -F $SD_PART
+                    log_success "SD Card successfully formatted."
+                else
+                    log_warn "Skipping format."
+                fi
             else
-                log_warn "Skipping format."
+                log_success "SD Card partition $SD_PART is properly formatted as ext4."
             fi
-        else
-            log_success "SD Card partition $SD_PART is properly formatted as ext4."
-        fi
 
-        sudo mkdir -p /mnt/sdcard
-        if ! mountpoint -q /mnt/sdcard; then
-            log_info "Mounting SD card to /mnt/sdcard..."
-            sudo mount $SD_PART /mnt/sdcard || log_error "Failed to mount $SD_PART."
-            if ! grep -q "$SD_PART /mnt/sdcard" /etc/fstab; then
-                echo "$SD_PART /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
-                log_success "Added SD card to /etc/fstab."
+            sudo mkdir -p /mnt/sdcard
+            if ! mountpoint -q /mnt/sdcard; then
+                log_info "Mounting SD card to /mnt/sdcard..."
+                sudo mount $SD_PART /mnt/sdcard || log_error "Failed to mount $SD_PART."
+                if ! grep -q "$SD_PART /mnt/sdcard" /etc/fstab; then
+                    echo "$SD_PART /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
+                    log_success "Added SD card to /etc/fstab."
+                fi
+            else
+                log_success "SD card is already mounted at /mnt/sdcard."
             fi
-        else
-            log_success "SD card is already mounted at /mnt/sdcard."
+            
+            log_info "Setting permissions for user $USER on SD card..."
+            sudo chown -R $USER:$USER /mnt/sdcard
         fi
-        
-        log_info "Setting permissions for user $USER on SD card..."
-        sudo chown -R $USER:$USER /mnt/sdcard
     else
-        log_warn "No SD card detected at $SD_DISK."
+        log_warn "Skipping Phase 1.8. Note: Building heavy python packages on the BBB without an SD card may crash."
     fi
 fi
 
