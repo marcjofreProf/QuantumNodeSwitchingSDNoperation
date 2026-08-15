@@ -45,3 +45,11 @@ sudo chmod +x ./bootstrap-node.sh
 ./bootstrap-node.sh
 
 Note on Storage: Insert sdcard after the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
+
+Note on BBB apt repositories: In /home/debian/, create the directory Scripts (mkdir Scripts). Then, download the repository:
+# Note for apt and apt-get 
+# sudo nano /etc/apt/sources.list 
+# Change the first three repositories urls for 
+# deb http://archive.debian.org/debian buster main 
+# deb http://archive.debian.org/debian buster-updates main 
+# deb http://security.debian.org/debian-security buster/updates main 
