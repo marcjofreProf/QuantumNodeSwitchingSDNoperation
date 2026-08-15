@@ -198,14 +198,18 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     log_info "Installing gRPC tools..."
     echo -e "${YELLOW}[NOTE] Compiling from source to match local GLIBC. This can take up to 60 mins.${NC}"
     
-    # --- MEMORY SAVING FLAGS FOR GCC ---
-    # 1. Force single-threaded compilation
-    export GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS=1
-    
-    # 2. -g0 strips debug symbols (massive RAM savings)
-    # 3. ggc-min-expand forces GCC to garbage-collect its own memory aggressively
-    export CFLAGS="-g0 -O2 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"
-    export CXXFLAGS="-g0 -O2 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"
+    # --- MEMORY SAVING FLAGS FOR GCC (BBB ONLY) ---
+    if [ "$ARCH" != "aarch64" ]; then
+        log_info "BBB detected: Applying strict memory limits for GCC compilation..."
+        
+        # 1. Force single-threaded compilation
+        export GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS=1
+        
+        # 2. -g0 strips debug symbols (massive RAM savings)
+        # 3. ggc-min-expand forces GCC to garbage-collect its own memory aggressively
+        export CFLAGS="-g0 -O2 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"
+        export CXXFLAGS="-g0 -O2 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"
+    fi
     
     pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
