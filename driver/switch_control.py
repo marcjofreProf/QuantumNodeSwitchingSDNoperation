@@ -3,6 +3,8 @@ import time
 import logging
 import gpiod
 
+# For faster switching instead of gpiod, PRU direct access could be used
+
 class OpticalMatrixDriver:
     def __init__(self, config_path="driver/pin_mappings.json"):
         self.logger = logging.getLogger("OpticalMatrixDriver")
