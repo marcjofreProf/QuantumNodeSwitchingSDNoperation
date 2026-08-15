@@ -66,3 +66,15 @@ deb http://archive.debian.org/debian buster-updates main contrib non-free
 #git checkout `uname -r` -b tmp
 deb [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] http://repos.rcn-ee.com/debian/ buster main
 #deb-src [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] http://repos.rcn-ee.com/debian/ buster main
+
+
+## Manual Hardware Testing
+
+Before initiating the gNOI agent, it is highly recommended to verify the physical connections to the MEMS Optical Matrix. A standalone test script is provided to cycle the crossconnect relays without requiring network connectivity or the gRPC server.
+
+### Executing the Test
+
+Ensure your `driver/pin_mappings.json` is correctly configured for your specific hardware, then execute the test script using the virtual environment:
+
+```bash
+sudo ./venv/bin/python3 ./test/test_manual_switching_hardware.py
