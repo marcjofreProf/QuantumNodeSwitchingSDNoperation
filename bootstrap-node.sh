@@ -196,8 +196,8 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     fi
     
     log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] If compiling from source (BBB), this can take up to 45 mins.${NC}"
-    pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
+    echo -e "${YELLOW}[NOTE] Compiling from source (BBB) to match local GLIBC. This can take up to 60 mins.${NC}"
+    pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
     # Cleanup build environment and turn off swap
     if [ -n "$TMPDIR" ]; then rm -rf "$TMPDIR"; fi
