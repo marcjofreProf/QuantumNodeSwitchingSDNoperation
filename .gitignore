@@ -1,32 +1,46 @@
-# --- Repository Specific Generated Artifacts ---
-# Scaffolding directories created by bootstrap-node.sh
-/agent/
-/driver/
-/proto/
-/systemd/
-
-# Specific generated files created with local paths/configs
-/driver/pin_mappings.json
-/systemd/quantum-gnoi-agent.service
-
-# Python environment and dependencies
-/venv/
+# ==========================================
+# Python Environments & Cache
+# ==========================================
+venv/
+env/
+ENV/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 
-# Logs
-/logs/
+# ==========================================
+# Node Bootstrap & Temporary Build Artifacts
+# ==========================================
+pip_build_tmp/
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==========================================
+# Agent Logs & Local Data
+# ==========================================
+logs/
 *.log
+quantum_logs/
 
-# Compiled Binaries (e.g., if a Go agent is compiled)
-/bin/
-/pkg/
-/agent/quantum-agent
-
-# OS and Editor Specific
+# ==========================================
+# OS Generated Files
+# ==========================================
 .DS_Store
-.idea/
-.vscode/
-*.swp
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
