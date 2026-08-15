@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# Quantum Node Switching - Interactive BBB Bootstrap Script (Updated)
+# Quantum Node Switching - Interactive BBB Bootstrap Script (Fix: PERSISTENT ERRORS)
 # ---------------------------------------------------------------------------
 
 set -e # Exit immediately on error
@@ -9,11 +9,15 @@ set -e # Exit immediately on error
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 # --- Helper Functions ---
 log_info() { echo -e "${CYAN}[INFO] $1${NC}"; }
 log_success() { echo -e "${GREEN}[SUCCESS] $1${NC}"; }
+log_warn() { echo -e "${YELLOW}[WARNING] $1${NC}"; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}"; }
+
 prompt_yes_no() {
     while true; do
         read -p "$1 [y/N]: " yn
@@ -25,53 +29,81 @@ prompt_yes_no() {
     done
 }
 
-echo -e "${YELLOW}=== Quantum Node Switching Agent Setup (Updated) ===${NC}"
+echo -e "${YELLOW}=== Quantum Node Switching Agent Setup (Fix: Persistent Errors) ===${NC}"
 
-# --- Phase 0: Network Configuration (assuming 10.0.0.0/24 context) ---
-if prompt_yes_no "Phase 0: Configure networking (shared internet access)?"; then
-    log_info "Configuring default gateway (assuming host at 10.0.0.1)..."
-    sudo ip route add default via 10.0.0.1 || true
+# ===========================================================================
+# PHASE 0: Tiered Internet Check (Fix Logic: preserve priority path)
+# This implements the logic from Guide 1 in image_2.png
+# ===========================================================================
+if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallback to 10.0.0.1)?"; then
+    log_info "Phase 0: Checking if priority path is already operative..."
     
-    log_info "Updating DNS to public providers (8.8.8.8, 1.1.1.1)..."
-    echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
-    log_success "Networking configured."
+    # Check if we can already reach the internet (e.g., Google DNS)
+    if ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
+        log_success "External connectivity verified. Internet is already operative (Preserving ETSI MANO path)."
+    else
+        log_warn "Ping check failed. Priority path inoperative."
+        log_info "Executing fallback command to add default gateway via 10.0.0.1..."
+        
+        # Check if we can at least reach 10.0.0.1
+        if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
+            sudo ip route add default via 10.0.0.1 || true
+            log_success "Fallback default route via 10.0.0.1 added."
+        else
+            log_error "Gateway 10.0.0.1 not reachable. Cannot add fallback gateway."
+            log_warn "You must configure sharing from your host computer now or you will have no internet."
+        fi
+    fi
+
+    # Update DNS if pinging 8.8.8.8 works but apt-get still fails
+    if ! grep -q "8.8.8.8" /etc/resolv.conf; then
+        log_info "Ensuring DNS is set to 8.8.8.8 in /etc/resolv.conf..."
+        echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
+        log_success "Resolv.conf updated."
+    fi
 fi
+# ===========================================================================
 
 # ===========================================================================
-# NEW: Phase 0.5 - Package Manager Fixes (Recommended if Phase 1 fails)
-# This executes the sequence shown in image_0.png
+# NEW: PHASE 0.5: Buster Version Mismatch Fix (Aggressive)
+# This implements the exact fix sequence from Guide 2 in image_2.png
+# Select 'y' for this if Phase 1 previously failed with python3.7 version errors.
 # ===========================================================================
-if prompt_yes_no "Phase 0.5: Run pre-emptive package manager fixes (clean, fix-broken)?"; then
-    log_info "Phase 0.5: Executing package fix sequence from guide..."
+if prompt_yes_no "Phase 0.5: Run aggressive Buster mismatch fix (rm apt lists, dist-upgrade, force install venv)?"; then
+    log_info "Phase 0.5: Executing aggressive fix sequence from Guide 2 (image_2.png)..."
     
-    log_info "1. Cleaning local apt repository cache..."
-    sudo apt-get clean
-    sudo apt-get autoclean
+    log_info "1. Wiping stale apt lists and local repository cache..."
+    # Force clean repo state and local files
+    sudo rm -rf /var/lib/apt/lists/* && sudo apt-get clean
     
-    log_info "2. Checking for held packages..."
-    sudo apt-mark showhold
+    log_info "2. Re-downloading fresh repository meta-data..."
+    sudo apt-get update
     
-    log_info "3. Attempting to fix broken dependencies explicitly (python3.7-venv Buster fix)..."
-    # Forcing install of both python3.7-venv and python3-venv to resolve Buster dependencies
-    sudo apt-get install -y -f python3.7-venv python3-venv
+    log_info "3. Performing Buster FULL sync (dist-upgrade) to align version drift..."
+    # Standard standard fix for parent/child version drift errors
+    sudo apt-get dist-upgrade -y
     
-    log_success "Phase 0.5: Package manager state checked and fixes attempted."
+    log_info "4. Confiming dependency path by explicitly installing python3.7-venv..."
+    # This confirm install checks that the dependency tree is synced
+    sudo apt-get install -y -f python3.7-venv
+    
+    log_success "Phase 0.5: Parent packages synchronized, and dependency tree fixed. Main installation should succeed."
 fi
 # ===========================================================================
 
 # --- Phase 1: System Updates ---
-if prompt_yes_no "Phase 1: Perform system package update and main tool installation?"; then
-    log_info "Updating BeagleBone Black package repositories..."
+if prompt_yes_no "Phase 1: Update system packages (apt-get update)?"; then
+    log_info "Updating package lists..."
     sudo apt-get update -y
     
-    log_info "Installing main system dependencies (git, curl, jq, etc.)..."
-    # Basic tools + python3-venv (dependencies should now be met after Phase 0.5)
+    log_info "Installing system tools and main dependencies..."
+    # Full Buster system tools + python3 tools (Buster base)
     sudo apt-get install -y build-essential git curl wget jq systemd python3-pip python3-venv
     log_success "System tools updated."
 fi
 
 # --- Phase 2: Hardware / GPIO Libraries ---
-if prompt_yes_no "Phase 2: Install/Reinstall GPIO control libraries (libgpiod)?"; then
+if prompt_yes_no "Phase 2: Install/Reinstall libgpiod libraries?"; then
     log_info "Installing libgpiod..."
     sudo apt-get install -y gpiod libgpiod-dev python3-libgpiod
     log_success "GPIO libraries installed."
@@ -79,7 +111,7 @@ fi
 
 # --- Phase 3: gRPC, Protobuf, and Agent Tooling ---
 if prompt_yes_no "Phase 3: Install/Reinstall gRPC, Protobuf, and Python venv?"; then
-    log_info "Installing gRPC and Protocol Buffers compiler..."
+    log_info "Installing gRPC and Protocol Buffers..."
     sudo apt-get install -y golang-go protobuf-compiler
 
     log_info "Setting up Python virtual environment (./venv)..."
@@ -126,9 +158,11 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=$(pwd)
+# ExecStart points to the agent within the VENV
 ExecStart=$(pwd)/venv/bin/python3 $(pwd)/agent/main.py
 Restart=on-failure
 RestartSec=5
+# Output redirection using append to logs folder artifact
 StandardOutput=append:$(pwd)/logs/agent.log
 StandardError=append:$(pwd)/logs/agent.log
 
@@ -137,12 +171,15 @@ WantedBy=multi-user.target
 EOF
 
     log_info "Linking to /etc/systemd/system/..."
+    # Linking ensures the service artifact updates when redeployed
     sudo ln -sf $(pwd)/systemd/quantum-gnoi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
     sudo systemctl daemon-reload
     log_success "Systemd service configured (requires start/enable)."
 fi
 
 echo -e "${GREEN}====================================================${NC}"
-echo -e "${GREEN} Setup Complete! ${NC}"
+echo -e "${GREEN} Bootstrap Execution Complete! ${NC}"
 echo -e "Follow the fix guide shown previously if needed."
+echo -e "To tail live agent logs: ${YELLOW}tail -f logs/agent.log${NC}"
+echo -e "Or use journalctl: ${YELLOW}journalctl -u quantum-gnoi-agent -f${NC}"
 echo -e "${GREEN}====================================================${NC}"
