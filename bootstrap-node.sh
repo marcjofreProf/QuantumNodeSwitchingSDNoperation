@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# Quantum Node Switching - Interactive BBB Bootstrap Script
+# Quantum Node Switching - Interactive BBB Bootstrap Script (Updated)
 # ---------------------------------------------------------------------------
 
 set -e # Exit immediately on error
@@ -11,6 +11,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# --- Helper Functions ---
 log_info() { echo -e "${CYAN}[INFO] $1${NC}"; }
 log_success() { echo -e "${GREEN}[SUCCESS] $1${NC}"; }
 prompt_yes_no() {
@@ -24,46 +25,49 @@ prompt_yes_no() {
     done
 }
 
-echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
+echo -e "${YELLOW}=== Quantum Node Switching Agent Setup (Updated) ===${NC}"
 
-# --- Phase 0: Network Configuration ---
-if prompt_yes_no "Phase 0: Verify/Configure networking for internet access?"; then
-    log_info "Checking current routing and internet connectivity..."
+# --- Phase 0: Network Configuration (assuming 10.0.0.0/24 context) ---
+if prompt_yes_no "Phase 0: Configure networking (shared internet access)?"; then
+    log_info "Configuring default gateway (assuming host at 10.0.0.1)..."
+    sudo ip route add default via 10.0.0.1 || true
     
-    # 1. Check if a default route already exists
-    if ip route | grep -q "^default"; then
-        CURRENT_GW=$(ip route | grep "^default" | awk '{print $3}' | head -n 1)
-        log_success "Default route already exists via $CURRENT_GW (Preserving SDN Architecture terminal routing)."
-    else
-        # 2. Fallback to 10.0.0.1 if no default route exists
-        log_info "No default route found. Attempting to set fallback gateway to 10.0.0.1..."
-        if ping -c 1 -W 1 10.0.0.1 >/dev/null 2>&1; then
-            sudo ip route add default via 10.0.0.1 || true
-            log_success "Added default route via 10.0.0.1."
-        else
-            echo -e "${YELLOW}[WARNING] Gateway 10.0.0.1 is not reachable. You may not have internet connectivity.${NC}"
-        fi
-    fi
-
-    # 3. Verify actual internet access and fix DNS if needed
-    if ! ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1; then
-        log_info "Internet not reachable. Updating DNS in /etc/resolv.conf..."
-        if ! grep -q "8.8.8.8" /etc/resolv.conf; then
-            echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
-            log_success "Updated /etc/resolv.conf with public DNS."
-        fi
-        echo -e "${YELLOW}[NOTE] If internet still fails, ensure your host computer is sharing its connection via NAT/iptables.${NC}"
-    else
-        log_success "Internet connectivity verified!"
-    fi
+    log_info "Updating DNS to public providers (8.8.8.8, 1.1.1.1)..."
+    echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
+    log_success "Networking configured."
 fi
 
+# ===========================================================================
+# NEW: Phase 0.5 - Package Manager Fixes (Recommended if Phase 1 fails)
+# This executes the sequence shown in image_0.png
+# ===========================================================================
+if prompt_yes_no "Phase 0.5: Run pre-emptive package manager fixes (clean, fix-broken)?"; then
+    log_info "Phase 0.5: Executing package fix sequence from guide..."
+    
+    log_info "1. Cleaning local apt repository cache..."
+    sudo apt-get clean
+    sudo apt-get autoclean
+    
+    log_info "2. Checking for held packages..."
+    sudo apt-mark showhold
+    
+    log_info "3. Attempting to fix broken dependencies explicitly (python3.7-venv Buster fix)..."
+    # Forcing install of both python3.7-venv and python3-venv to resolve Buster dependencies
+    sudo apt-get install -y -f python3.7-venv python3-venv
+    
+    log_success "Phase 0.5: Package manager state checked and fixes attempted."
+fi
+# ===========================================================================
+
 # --- Phase 1: System Updates ---
-if prompt_yes_no "Phase 1: Update system packages (apt-get update)?"; then
+if prompt_yes_no "Phase 1: Perform system package update and main tool installation?"; then
     log_info "Updating BeagleBone Black package repositories..."
     sudo apt-get update -y
-    sudo apt-get install -y build-essential git curl wget jq systemd
-    log_success "System packages updated."
+    
+    log_info "Installing main system dependencies (git, curl, jq, etc.)..."
+    # Basic tools + python3-venv (dependencies should now be met after Phase 0.5)
+    sudo apt-get install -y build-essential git curl wget jq systemd python3-pip python3-venv
+    log_success "System tools updated."
 fi
 
 # --- Phase 2: Hardware / GPIO Libraries ---
@@ -75,10 +79,11 @@ fi
 
 # --- Phase 3: gRPC, Protobuf, and Agent Tooling ---
 if prompt_yes_no "Phase 3: Install/Reinstall gRPC, Protobuf, and Python venv?"; then
-    log_info "Installing gRPC and Protocol Buffers..."
-    sudo apt-get install -y golang-go protobuf-compiler python3-pip python3-venv
+    log_info "Installing gRPC and Protocol Buffers compiler..."
+    sudo apt-get install -y golang-go protobuf-compiler
 
     log_info "Setting up Python virtual environment (./venv)..."
+    # Overwrite venv if re-deploying
     rm -rf venv
     python3 -m venv venv
     source venv/bin/activate
@@ -138,7 +143,6 @@ EOF
 fi
 
 echo -e "${GREEN}====================================================${NC}"
-echo -e "${GREEN} Bootstrap Execution Complete! ${NC}"
-echo -e "To start the agent:  ${YELLOW}sudo systemctl enable --now quantum-gnoi-agent.service${NC}"
-echo -e "To view live logs:   ${YELLOW}tail -f logs/agent.log${NC} or ${YELLOW}journalctl -u quantum-gnoi-agent -f${NC}"
+echo -e "${GREEN} Setup Complete! ${NC}"
+echo -e "Follow the fix guide shown previously if needed."
 echo -e "${GREEN}====================================================${NC}"
