@@ -187,7 +187,7 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     fi
     
     log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] Compiling grpcio from source on an ARM CPU can take up to 45 mins. Grab a coffee.${NC}"
+    echo -e "${YELLOW}[NOTE] Compiling grpcio from source on an ARM CPU can take up to 2 hours.${NC}"
     pip install --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     
     # Cleanup build environment and turn off swap
