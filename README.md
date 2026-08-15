@@ -35,11 +35,11 @@ A bootstrap script is provided to instantly configure a fresh BeagleBone Black w
 
 ```bash
 # 1. Clone the repository on the BeagleBone Black
-git clone --depth=1 https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git
+git clone https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git main
 cd QuantumNodeSwitchingSDNoperation
 
 # 2. Make the bootstrap script executable
-sudo chmod +x bootstrap-node.sh
+sudo chmod +x ./bootstrap-node.sh
 
 # 3. Run the setup (requires sudo privileges)
 ./bootstrap-node.sh
