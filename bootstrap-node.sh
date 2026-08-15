@@ -156,7 +156,7 @@ if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for logs/compilat
 fi
 
 # --- Phase 2: Hardware / GPIO Libraries ---
-if prompt_yes_no "Phase 2: Install GPIO control libraries (libgpiod)?"; then
+if prompt_yes_no "Phase 2: -notice - other faster gpio methods could be used - Install GPIO control libraries (libgpiod)?"; then
     log_info "Scanning and installing libgpiod..."
     check_and_install gpiod libgpiod-dev python3-libgpiod
 fi
@@ -288,7 +288,7 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=$(pwd)
-ExecStart=${pwd}/venv/bin/python3 ${pwd}/agent/gnoi_agent.py
+ExecStart=$(pwd)/venv/bin/python3 $(pwd)/agent/gnoi_agent.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:$(pwd)/logs/agent.log
