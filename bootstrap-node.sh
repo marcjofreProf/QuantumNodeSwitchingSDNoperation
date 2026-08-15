@@ -105,14 +105,12 @@ if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation s
             log_warn "SD Card is NOT formatted as ext4 or partition is missing."
             if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
                 log_info "Formatting $SD_DISK to ext4..."
-                # Unmount in case it's auto-mounted with the wrong format
                 sudo umount $SD_PART 2>/dev/null || true
                 
-                # Create a new partition table and format
                 sudo parted -s $SD_DISK mklabel msdos
                 sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
                 sudo partprobe $SD_DISK
-                sleep 2 # Wait for OS to register new partition
+                sleep 2
                 sudo mkfs.ext4 -F $SD_PART
                 log_success "SD Card successfully formatted."
             else
@@ -136,6 +134,11 @@ if prompt_yes_no "Phase 1.8: Detect, Format, and Mount SD card for compilation s
         else
             log_success "SD card is already mounted at /mnt/sdcard."
         fi
+        
+        # --- THE FIX: Grant current user ownership of the SD Card ---
+        log_info "Setting permissions for user $USER on SD card..."
+        sudo chown -R $USER:$USER /mnt/sdcard
+        
         df -h /mnt/sdcard
     else
         log_warn "No SD card detected at $SD_DISK. Insert a card if you want to expand storage."
