@@ -1,19 +1,17 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
 # Quantum Node Switching - Universal Bootstrap Script
-# (Features: Auto-detects BBB vs BB-AI64, Smart APT, SD Expansion, Virtual RAM)
+# (Features: Auto-detects BBB vs BB-AI64, Local Wheel Install, Log SD Offload)
 # ---------------------------------------------------------------------------
 
-set -e # Exit immediately on error
+set -e
 
-# --- Colors ---
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# --- Helper Functions ---
 log_info() { echo -e "${CYAN}[INFO] $1${NC}"; }
 log_success() { echo -e "${GREEN}[SUCCESS] $1${NC}"; }
 log_warn() { echo -e "${YELLOW}[WARNING] $1${NC}"; }
@@ -50,7 +48,6 @@ check_and_install() {
 
 echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 
-# Detect Architecture
 ARCH=$(uname -m)
 log_info "Detected System Architecture: $ARCH"
 
@@ -110,25 +107,24 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
     log_success "System cleanup complete. Storage freed."
 fi
 
-# --- Phase 1.8: SD Card Expansion & Auto-Format ---
+# --- Phase 1.8: SD Card Setup for Logging ---
 if [ "$ARCH" = "aarch64" ]; then
     log_info "Phase 1.8: BB-AI64 detected. SD Card setup is not required. Skipping..."
 else
-    log_info "Phase 1.8: BBB detected. An SD card is REQUIRED for logs and compilation space."
+    log_info "Phase 1.8: BBB detected. An SD card is HIGHLY RECOMMENDED for offloading logs and preserving eMMC life."
     
-    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card?"; then
+    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card for logs?"; then
         SD_DISK="/dev/mmcblk0"
         SD_PART="/dev/mmcblk0p1"
         
-        # Pause and wait for the user to insert the SD card if it's not already there
         while [ ! -b "$SD_DISK" ]; do
             echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
             read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
             if [ "$sd_input" = "skip" ]; then
-                log_warn "Skipping SD card setup. Warning: Compilation may fail due to lack of space!"
+                log_warn "Skipping SD card setup. Warning: Logs will write directly to internal eMMC flash storage."
                 break
             fi
-            sleep 2 # Give the OS time to register the block device
+            sleep 2
         done
         
         if [ -b "$SD_DISK" ]; then
@@ -168,12 +164,12 @@ else
             sudo chown -R $USER:$USER /mnt/sdcard
         fi
     else
-        log_warn "Skipping Phase 1.8. Note: Building heavy python packages on the BBB without an SD card may crash."
+        log_warn "Skipping Phase 1.8. Logs will be kept on the internal eMMC."
     fi
 fi
 
 # --- Phase 2: gRPC, Protobuf, and VirtualEnv ---
-if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; then
+if prompt_yes_no "Phase 2: Install gRPC, Protobuf, and Python environment?"; then
     log_info "Scanning and installing C++ dependencies..."
     check_and_install golang-go protobuf-compiler
 
@@ -184,50 +180,23 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     rm -rf venv
     virtualenv --system-site-packages venv
     source venv/bin/activate
-    pip install --default-timeout=1000 --upgrade pip
-    
-    if mountpoint -q /mnt/sdcard; then
-        log_success "SD Card found! Routing pip build files to /mnt/sdcard/pip_build_tmp..."
-        mkdir -p /mnt/sdcard/pip_build_tmp
-        export TMPDIR=/mnt/sdcard/pip_build_tmp
+    pip install --upgrade pip
+
+    # --- FAST LOCAL WHEEL INSTALLATION LOGIC ---
+    if [ "$ARCH" != "aarch64" ]; then
+        log_info "BBB detected. Checking for local pre-compiled wheels in ./builds..."
         
-        # Only provision swap on the 32-bit BBB (it has 512MB RAM). AI-64 has plenty.
-        if [ "$ARCH" != "aarch64" ]; then
-            log_info "BBB detected. Creating 4GB temporary Swap file on SD Card to prevent memory exhaustion..."
-            sudo fallocate -l 4G /mnt/sdcard/temp_swap
-            sudo chmod 600 /mnt/sdcard/temp_swap
-            sudo mkswap /mnt/sdcard/temp_swap
-            sudo swapon /mnt/sdcard/temp_swap
-            log_success "4GB Swap file activated."
+        if ls ./builds/*.whl 1> /dev/null 2>&1; then
+            log_success "Found local pre-compiled wheels in ./builds! Installing directly (takes ~10 seconds)..."
+            pip install ./builds/*.whl
+        else
+            log_warn "No local pre-compiled wheels found in ./builds."
+            log_warn "Falling back to remote PiWheels download (may take very long if compilation occurs)..."
+            pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
         fi
     else
-        log_warn "No SD Card found. Using root for pip build files."
-        mkdir -p $(pwd)/pip_build_tmp
-        export TMPDIR=$(pwd)/pip_build_tmp
-    fi
-    
-    log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] Compiling from source to match local GLIBC. This can take up to 12 hours.${NC}"
-    
-    # --- GRPCIO INSTALLATION LOGIC ---
-    if [ "$ARCH" != "aarch64" ]; then
-        # Install forcing source build for BBB architecture
-        pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
-    else
-        log_info "BB-AI64 (aarch64) detected: Using pre-compiled binary wheels..."
-        
-        # Standard install allowing pre-compiled binaries (bypasses the disk space crash)
+        log_info "BB-AI64 (aarch64) detected: Using standard binary wheels..."
         pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
-    fi
-        
-    # Cleanup build environment and turn off swap
-    if [ -n "$TMPDIR" ]; then rm -rf "$TMPDIR"; fi
-    unset TMPDIR
-    
-    if mountpoint -q /mnt/sdcard && [ -f /mnt/sdcard/temp_swap ]; then
-        log_info "Deactivating and removing 2GB temporary swap file..."
-        sudo swapoff /mnt/sdcard/temp_swap
-        sudo rm /mnt/sdcard/temp_swap
     fi
     
     deactivate
@@ -235,7 +204,7 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
 fi
 
 # --- Phase 3: Hardware / GPIO Libraries ---
-if prompt_yes_no "Phase 2: - notice: other faster gpio methods could be used - Install GPIO control libraries (libgpiod)?"; then
+if prompt_yes_no "Phase 3: Install GPIO control libraries (libgpiod)?"; then
     log_info "Scanning and installing libgpiod..."
     check_and_install gpiod libgpiod-dev python3-libgpiod
 fi
