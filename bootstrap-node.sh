@@ -200,11 +200,11 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
         # Only provision swap on the 32-bit BBB (it has 512MB RAM). AI-64 has plenty.
         if [ "$ARCH" != "aarch64" ]; then
             log_info "BBB detected. Creating 2GB temporary Swap file on SD Card to prevent memory exhaustion..."
-            sudo fallocate -l 4G /mnt/sdcard/temp_swap
+            sudo fallocate -l 2G /mnt/sdcard/temp_swap
             sudo chmod 600 /mnt/sdcard/temp_swap
             sudo mkswap /mnt/sdcard/temp_swap
             sudo swapon /mnt/sdcard/temp_swap
-            log_success "4GB Swap file activated."
+            log_success "2GB Swap file activated."
         fi
     else
         log_warn "No SD Card found. Using root for pip build files."
