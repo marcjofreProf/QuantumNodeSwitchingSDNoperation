@@ -213,7 +213,7 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     fi
     
     log_info "Installing gRPC tools..."
-    echo -e "${YELLOW}[NOTE] Compiling from source to match local GLIBC. This can take up to 60 mins.${NC}"
+    echo -e "${YELLOW}[NOTE] Compiling from source to match local GLIBC. This can take up to 12 hours.${NC}"
     
     # --- GRPCIO INSTALLATION LOGIC ---
     if [ "$ARCH" != "aarch64" ]; then
