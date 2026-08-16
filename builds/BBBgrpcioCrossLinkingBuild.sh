@@ -4,7 +4,15 @@
 # Runs on Host Machine (Linux/macOS) with Docker
 # Builds and cross-links for BBB the tools grpcio, grpcio-tools and protobuf
 # ---------------------------------------------------------------------------
-
+# Just required to be built once
+# Requires docker
+# sudo apt-get update
+# sudo apt-get install -y docker.io
+# Add Your User to the Docker Group. The script runs docker commands without sudo. To allow your user  to do this, add yourself to the docker group:
+# sudo usermod -aG docker $USER
+# Start the Docker Service
+# sudo service docker start
+# ----------------------------------------------------------------------------
 set -e
 
 GREEN='\033[0;32m'
@@ -26,9 +34,9 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# 2. Ensure target builds directory exists
-BUILD_DIR="$(pwd)/builds"
-mkdir -p "$BUILD_DIR"
+# 2. Ensure target builds directory is the directory the script resides in
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="$SCRIPT_DIR"
 log_info "Output directory ready at: $BUILD_DIR"
 
 # 3. Register QEMU for ARM emulation
@@ -43,6 +51,12 @@ docker run --rm \
     -v "$BUILD_DIR:/output" \
     arm32v7/debian:buster bash -c "
         set -e
+        
+        echo '[CONTAINER] Fixing Debian Buster APT sources (OS reached End-of-Life)...'
+        echo 'deb http://archive.debian.org/debian buster main' > /etc/apt/sources.list
+        echo 'deb http://archive.debian.org/debian-security buster/updates main' >> /etc/apt/sources.list
+        echo 'Acquire::Check-Valid-Until \"false\";' > /etc/apt/apt.conf.d/10no-check-valid-until
+
         echo '[CONTAINER] Updating package manager...'
         apt-get update -y
         
@@ -68,5 +82,5 @@ docker run --rm \
     "
 
 log_success "Cross-compilation complete!"
-log_info "The compiled wheels in ./builds are ready to be committed to GitHub:"
+log_info "The compiled wheels are ready in $BUILD_DIR to be committed to GitHub:"
 ls -lh "$BUILD_DIR"/*.whl
