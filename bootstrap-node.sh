@@ -217,20 +217,8 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     
     # --- GRPCIO INSTALLATION LOGIC ---
     if [ "$ARCH" != "aarch64" ]; then
-        #log_info "BBB detected: Applying strict memory limits and compiling from source..."
-        #
-        ## 1. Force single-threaded compilation (BBB is single-core, >1 just wastes RAM)
-        #export GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS=1
-        #
-        ## 2. -g0 strips debug symbols (CRITICAL to prevent 'Out of Disk Space' crashes)
-        #export CFLAGS="-g0"
-        #export CXXFLAGS="-g0"
-        #
         # Install forcing source build for BBB architecture
         pip install --default-timeout=1000 --no-cache-dir --no-binary=grpcio,grpcio-tools --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
-        #
-        ## Unset the flags so they don't affect future commands
-        #unset GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS CFLAGS CXXFLAGS
     else
         log_info "BB-AI64 (aarch64) detected: Using pre-compiled binary wheels..."
         
