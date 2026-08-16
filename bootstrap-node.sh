@@ -328,7 +328,12 @@ EOF
     log_info "Linking to /etc/systemd/system/..."
     sudo ln -sf $(pwd)/systemd/quantum-gnoi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
     sudo systemctl daemon-reload
-    log_success "Systemd service configured."
+    
+    log_info "Enabling and starting the quantum-gnoi-agent service..."
+    sudo systemctl enable quantum-gnoi-agent
+    sudo systemctl start quantum-gnoi-agent
+    
+    log_success "Systemd service configured, enabled on boot, and currently running."    
 fi
 
 echo -e "${GREEN}====================================================${NC}"
