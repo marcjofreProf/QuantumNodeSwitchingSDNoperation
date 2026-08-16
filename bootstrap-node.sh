@@ -172,13 +172,7 @@ else
     fi
 fi
 
-# --- Phase 2: Hardware / GPIO Libraries ---
-if prompt_yes_no "Phase 2: - notice: other faster gpio methods could be used - Install GPIO control libraries (libgpiod)?"; then
-    log_info "Scanning and installing libgpiod..."
-    check_and_install gpiod libgpiod-dev python3-libgpiod
-fi
-
-# --- Phase 3: gRPC, Protobuf, and VirtualEnv ---
+# --- Phase 2: gRPC, Protobuf, and VirtualEnv ---
 if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; then
     log_info "Scanning and installing C++ dependencies..."
     check_and_install golang-go protobuf-compiler
@@ -238,6 +232,12 @@ if prompt_yes_no "Phase 3: Install gRPC, Protobuf, and Python environment?"; the
     
     deactivate
     log_success "gRPC and Python environment ready."
+fi
+
+# --- Phase 3: Hardware / GPIO Libraries ---
+if prompt_yes_no "Phase 2: - notice: other faster gpio methods could be used - Install GPIO control libraries (libgpiod)?"; then
+    log_info "Scanning and installing libgpiod..."
+    check_and_install gpiod libgpiod-dev python3-libgpiod
 fi
 
 # --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
