@@ -69,7 +69,17 @@ sudo chmod +x ./bootstrap-node.sh
 > **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
 
 > **Note on BBB apt repositories:** In `/home/debian/`, create the directory `Scripts` (`mkdir Scripts`). Then, download the repository.
-> 
+
+### Storage Management (SD Card Symlinking)
+To conserve internal storage on the edge nodes, move the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
+
+```bash
+# Move the project to the SD card
+mv ~/Scripts /mnt/sdcard/
+
+# Create a symbolic link in the home directory pointing to the SD card
+ln -s /mnt/sdcard/Scripts ~/Scripts
+
 > If you experience issues with `apt` and `apt-get`, edit your sources list (`sudo nano /etc/apt/sources.list`) to match the following archive mirrors for Debian Buster:
 
 ```text
