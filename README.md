@@ -29,6 +29,23 @@ This circuit-switched data plane achieves physical switching delays ranging from
 * `/proto/` - Local copies of the gNOI/gNMI protocol buffer definitions.
 * `/systemd/` - Daemons to run the agent as a persistent background service.
 
+### Accelerated gRPC Installation (Pre-built Wheels)
+
+Building heavy C++ Python libraries like `grpcio` and `protobuf` from source directly on the BeagleBone Black (ARM32v7, 512MB RAM) is incredibly slow—taking up to 12 hours—and requires generating massive temporary swap partitions to prevent memory crashes.
+
+To solve this, this repository uses a **host-based cross-compilation** strategy. By leveraging Docker and QEMU on a standard desktop/laptop, we emulate the BBB's 32-bit Debian Buster environment and compile Python Wheels (`.whl` files) in a fraction of the time.
+
+** Good news: This has already been done!**
+The pre-compiled wheel binaries are already stored in the `./builds` directory of this repository. When you run `bootstrap-node.sh` on the BBB, it will automatically detect these local files and install them in seconds. If needed to re-compile them, execute ./BBBgrpcioCrossLinkingBuild.sh in folder builds.
+
+#### Rebuilding the Wheels (For Maintainers)
+If you need to update the version of gRPC or rebuild the wheels for any reason, you can do so on any Linux/macOS/WSL machine with Docker installed:
+
+1. Ensure Docker is running on your host machine.
+2. Navigate to the `builds` directory:
+   ```bash
+   cd builds
+
 ## Quickstart (BeagleBone Black)
 
 A bootstrap script is provided to instantly configure a fresh BeagleBone Black with the required dependencies, GPIO libraries, gRPC tooling, and folder structure.
