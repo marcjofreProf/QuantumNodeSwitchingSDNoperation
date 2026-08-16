@@ -97,12 +97,13 @@ The gNOI Agent (`agent/gnoi_agent.py`) is the brain of the node. It hosts a gRPC
 
 ### Automatic Execution (Recommended)
 
-During the execution of `bootstrap-node.sh`, a Systemd service is automatically generated. The agent will run in the background and start automatically on boot.
+During the execution of `bootstrap-node.sh`, a Systemd service is automatically generated. The agent will run in the background and start automatically on boot (sudo systemctl enable quantum-gnoi-agent).
 
 To manage the service, use standard `systemctl` commands:
 
 ```bash
 sudo systemctl status quantum-gnoi-agent
+sudo systemctl start quantum-gnoi-agent
 sudo systemctl restart quantum-gnoi-agent
 sudo systemctl stop quantum-gnoi-agent
 ```
