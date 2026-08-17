@@ -98,13 +98,26 @@ fi
 
 # --- Phase 1.5: System Cleanup ---
 if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
-    log_info "Removing orphaned/unnecessary APT packages..."
-    sudo apt-get autoremove -y
+    log_info "Purging unneeded packages and cleaning APT cache..."
+    sudo apt-get autoremove --purge -y
     sudo apt-get clean
-    log_info "Clearing local PIP caches..."
-    rm -rf ~/.cache/pip
-    sudo rm -rf /root/.cache/pip
-    log_success "System cleanup complete. Storage freed."
+    # Note: We specifically DO NOT delete /var/lib/apt/lists/ here so Phase 2 & 3 apt-installs don't fail
+
+    log_info "Vacuuming systemd journal logs to max 10MB..."
+    sudo journalctl --vacuum-size=10M 2>/dev/null || true
+
+    log_info "Clearing rotated log archives in /var/log..."
+    sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete
+    
+    log_info "Truncating active text logs safely..."
+    sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} + 2>/dev/null || true
+
+    log_info "Clearing temporary files and user caches..."
+    sudo rm -rf /tmp/* /var/tmp/*
+    rm -rf ~/.cache/*
+    sudo rm -rf /root/.cache/*
+
+    log_success "System cleanup complete. eMMC storage freed safely."
 fi
 
 # --- Phase 1.8: SD Card Setup for Logging ---
