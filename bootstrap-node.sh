@@ -122,8 +122,12 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
     sudo apt-get clean
     # Note: We specifically DO NOT delete /var/lib/apt/lists/ here so Phase 2 & 3 apt-installs don't fail
 
-    log_info "Vacuuming systemd journal logs to max 2MB..."
+    log_info "Vacuuming systemd journal logs to absolute minimum..."
+    sudo journalctl --vacuum-time=1s 2>/dev/null || true
     sudo journalctl --vacuum-size=2M 2>/dev/null || true
+
+    log_info "Clearing cached manual pages to prevent mandb space errors..."
+    sudo rm -rf /var/cache/man/*
 
     log_info "Clearing rotated log archives in /var/log..."
     sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete
