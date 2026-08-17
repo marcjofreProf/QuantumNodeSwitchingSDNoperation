@@ -54,11 +54,17 @@ fi
 
 # --- Phase 2: Python Virtual Environment Cleanup ---
 if prompt_yes_no "Phase 2: Remove Python virtual environment (./venv)?"; then
-    if [ -d "venv" ]; then
-        log_info "Removing ./venv directory..."
+    if [ -L "venv" ] || [ -d "venv" ]; then
+        log_info "Removing local ./venv link/directory..."
         rm -rf venv
-        log_success "Virtual environment removed."
     fi
+    
+    if [ -d "/mnt/sdcard/venv" ]; then
+        log_info "Removing offloaded SD card venv (/mnt/sdcard/venv)..."
+        sudo rm -rf /mnt/sdcard/venv
+    fi
+    
+    log_success "Virtual environment completely removed."
 fi
 
 # --- Phase 3: Clean Generated Stubs & Log Symlink ---
@@ -98,6 +104,23 @@ if prompt_yes_no "Phase 5: Purge build dependencies (golang-go, protobuf-compile
     sudo apt-get purge -y golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod || true
     sudo apt-get autoremove -y
     log_success "Packages purged."
+fi
+
+# --- Phase 6: Restore APT Cache to Internal eMMC ---
+if prompt_yes_no "Phase 6: Restore APT cache to internal eMMC (Crucial if removing the SD card)?"; then
+    if [ -L "/var/cache/apt/archives" ]; then
+        log_info "Removing APT cache symlink pointing to SD card..."
+        sudo rm -f /var/cache/apt/archives
+        
+        log_info "Recreating default internal APT cache directories..."
+        sudo mkdir -p /var/cache/apt/archives/partial
+        sudo chown -R _apt:root /var/cache/apt/archives
+        sudo apt-get clean
+        
+        log_success "APT cache safely unlinked and restored to eMMC."
+    else
+        log_info "APT cache is not symlinked. Skipping."
+    fi
 fi
 
 echo -e "${GREEN}====================================================${NC}"
