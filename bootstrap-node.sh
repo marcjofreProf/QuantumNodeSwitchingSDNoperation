@@ -79,7 +79,6 @@ if prompt_yes_no "Phase 0.5: Synchronize system time (fixes SSL and APT certific
     sudo systemctl restart systemd-timesyncd 2>/dev/null || true
     
     log_info "Attempting HTTP time sync fallback (bypasses SSL errors on old clocks)..."
-    # Using HTTP instead of HTTPS so curl doesn't fail if the system year is outdated
     HTTP_DATE=$(curl -sI -m 5 http://google.com 2>/dev/null | grep -i "^date:" | sed 's/^[Dd]ate: //g' | tr -d '\r')
     
     if [ -n "$HTTP_DATE" ]; then
@@ -90,37 +89,11 @@ if prompt_yes_no "Phase 0.5: Synchronize system time (fixes SSL and APT certific
     fi
 fi
 
-# --- Phase 1: System Updates & Architecture-Specific Fixes ---
-if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
-    log_info "Updating APT package lists..."
-    sudo rm -rf /var/lib/apt/lists/*
-    sudo apt-get update -y
-    
-    if [ "$ARCH" = "aarch64" ]; then
-        log_info "64-bit architecture (BB-AI64) detected. Installing standard Python 3 packages..."
-        check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
-    else
-        log_info "32-bit architecture (BBB) detected. Installing base tools..."
-        check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
-        
-        log_warn "Applying Debian Buster downgrade fix for BBB python3-dev..."
-        sudo apt-get install -y --allow-downgrades \
-          python3.7=3.7.3-2+deb10u3 \
-          python3.7-minimal=3.7.3-2+deb10u3 \
-          libpython3.7-stdlib=3.7.3-2+deb10u3 \
-          libpython3.7-minimal=3.7.3-2+deb10u3 \
-          libpython3.7=3.7.3-2+deb10u3 \
-          python3.7-dev=3.7.3-2+deb10u3 \
-          libpython3.7-dev=3.7.3-2+deb10u3
-    fi
-fi
-
-# --- Phase 1.5: System Cleanup ---
-if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
+# --- Phase 0.7: PRE-EMPTIVE System Cleanup ---
+if prompt_yes_no "Phase 0.7: Run pre-emptive cleanup to free up eMMC storage before downloads?"; then
     log_info "Purging unneeded packages and cleaning APT cache..."
     sudo apt-get autoremove --purge -y
     sudo apt-get clean
-    # Note: We specifically DO NOT delete /var/lib/apt/lists/ here so Phase 2 & 3 apt-installs don't fail
 
     log_info "Vacuuming systemd journal logs to absolute minimum..."
     sudo journalctl --vacuum-time=1s 2>/dev/null || true
@@ -140,16 +113,16 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
     rm -rf ~/.cache/*
     sudo rm -rf /root/.cache/*
 
-    log_success "System cleanup complete. eMMC storage freed safely."
+    log_success "Pre-emptive system cleanup complete. eMMC storage freed safely."
 fi
 
-# --- Phase 1.8: SD Card Setup for Logging & APT Cache ---
+# --- Phase 0.8: PRE-EMPTIVE SD Card Setup for Logging & APT Cache ---
 if [ "$ARCH" = "aarch64" ]; then
-    log_info "Phase 1.8: BB-AI64 detected. SD Card setup is not required. Skipping..."
+    log_info "Phase 0.8: BB-AI64 detected. SD Card setup is not required. Skipping..."
 else
-    log_info "Phase 1.8: BBB detected. An SD card is HIGHLY RECOMMENDED for offloading logs and preserving eMMC life."
+    log_info "Phase 0.8: BBB detected. Routing APT Cache and logs to SD card to preserve eMMC..."
     
-    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card for logs and APT cache?"; then
+    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card?"; then
         SD_DISK="/dev/mmcblk0"
         SD_PART="/dev/mmcblk0p1"
         
@@ -157,7 +130,7 @@ else
             echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
             read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
             if [ "$sd_input" = "skip" ]; then
-                log_warn "Skipping SD card setup. Warning: Logs will write directly to internal eMMC flash storage."
+                log_warn "Skipping SD card setup. Warning: Installs and logs will write directly to internal eMMC flash storage."
                 break
             fi
             sleep 2
@@ -199,7 +172,7 @@ else
             log_info "Setting permissions for user $USER on SD card..."
             sudo chown -R $USER:$USER /mnt/sdcard
 
-            # --- NEW: APT Cache Offloading ---
+            # --- Offload APT Cache immediately before Phase 1 ---
             log_info "Offloading APT package cache to SD card to save eMMC space..."
             sudo mkdir -p /mnt/sdcard/apt-cache/partial
             sudo chown -R _apt:root /mnt/sdcard/apt-cache
@@ -208,7 +181,32 @@ else
             log_success "APT cache successfully linked to SD card."
         fi
     else
-        log_warn "Skipping Phase 1.8. Logs and APT cache will be kept on the internal eMMC."
+        log_warn "Skipping Phase 0.8. Everything will be kept on the internal eMMC."
+    fi
+fi
+
+# --- Phase 1: System Updates & Architecture-Specific Fixes ---
+if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
+    log_info "Updating APT package lists..."
+    sudo rm -rf /var/lib/apt/lists/*
+    sudo apt-get update -y
+    
+    if [ "$ARCH" = "aarch64" ]; then
+        log_info "64-bit architecture (BB-AI64) detected. Installing standard Python 3 packages..."
+        check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
+    else
+        log_info "32-bit architecture (BBB) detected. Installing base tools..."
+        check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
+        
+        log_warn "Applying Debian Buster downgrade fix for BBB python3-dev..."
+        sudo apt-get install -y --allow-downgrades \
+          python3.7=3.7.3-2+deb10u3 \
+          python3.7-minimal=3.7.3-2+deb10u3 \
+          libpython3.7-stdlib=3.7.3-2+deb10u3 \
+          libpython3.7-minimal=3.7.3-2+deb10u3 \
+          libpython3.7=3.7.3-2+deb10u3 \
+          python3.7-dev=3.7.3-2+deb10u3 \
+          libpython3.7-dev=3.7.3-2+deb10u3
     fi
 fi
 
@@ -223,7 +221,6 @@ if prompt_yes_no "Phase 2: Install gRPC, Protobuf, and Python environment?"; the
     log_info "Setting up Python virtual environment (./venv)..."
     rm -rf venv
     
-    # --- NEW: VENV SD Card Offloading ---
     if mountpoint -q /mnt/sdcard; then
         log_info "SD Card detected! Offloading Python virtual environment to /mnt/sdcard/venv..."
         mkdir -p /mnt/sdcard/venv
@@ -239,16 +236,13 @@ if prompt_yes_no "Phase 2: Install gRPC, Protobuf, and Python environment?"; the
     source venv/bin/activate
     pip install --upgrade pip
 
-    # --- FAST LOCAL WHEEL INSTALLATION LOGIC ---
     if [ "$ARCH" != "aarch64" ]; then
         log_info "BBB detected. Checking for local pre-compiled wheels in ./builds..."
-        
         if ls ./builds/*.whl 1> /dev/null 2>&1; then
-            log_success "Found local pre-compiled wheels in ./builds! Installing directly (takes ~10 seconds)..."
+            log_success "Found local pre-compiled wheels in ./builds! Installing directly..."
             pip install ./builds/*.whl
         else
-            log_warn "No local pre-compiled wheels found in ./builds."
-            log_warn "Falling back to remote PiWheels download (may take very long if compilation occurs)..."
+            log_warn "No local pre-compiled wheels found. Falling back to remote PiWheels..."
             pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
         fi
     else
@@ -267,7 +261,6 @@ if prompt_yes_no "Phase 3: Install GPIO control libraries (libgpiod)?"; then
 fi
 
 # --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
-# --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
 if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?"; then
     log_info "Creating node-level folder structure..."
     mkdir -p agent driver proto systemd test
@@ -278,7 +271,6 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
         rm -rf logs
         ln -sfn /mnt/sdcard/quantum_logs logs
     else
-        # Safely remove any existing symlink before creating local folder
         [ -L logs ] && rm -f logs
         mkdir -p logs
     fi
