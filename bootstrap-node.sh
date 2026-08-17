@@ -72,6 +72,24 @@ if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallba
     fi
 fi
 
+# --- Phase 0.5: System Time Synchronization ---
+if prompt_yes_no "Phase 0.5: Synchronize system time (fixes SSL and APT certificate errors)?"; then
+    log_info "Enabling systemd network time protocol (NTP)..."
+    sudo timedatectl set-ntp true 2>/dev/null || true
+    sudo systemctl restart systemd-timesyncd 2>/dev/null || true
+    
+    log_info "Attempting HTTP time sync fallback (bypasses SSL errors on old clocks)..."
+    # Using HTTP instead of HTTPS so curl doesn't fail if the system year is outdated
+    HTTP_DATE=$(curl -sI -m 5 http://google.com 2>/dev/null | grep -i "^date:" | sed 's/^[Dd]ate: //g' | tr -d '\r')
+    
+    if [ -n "$HTTP_DATE" ]; then
+        sudo date -s "$HTTP_DATE" >/dev/null
+        log_success "Time synchronized successfully: $(date)"
+    else
+        log_warn "HTTP time sync failed. Relying on NTP daemon background sync."
+    fi
+fi
+
 # --- Phase 1: System Updates & Architecture-Specific Fixes ---
 if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
     log_info "Updating APT package lists..."
