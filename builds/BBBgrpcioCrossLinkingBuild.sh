@@ -39,6 +39,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR"
 log_info "Output directory ready at: $BUILD_DIR"
 
+# 2.5 Clean up old wheels to prevent version conflicts
+if ls "$BUILD_DIR"/*.whl >/dev/null 2>&1; then
+    log_warn "Found existing wheels in $BUILD_DIR. Deleting them..."
+    rm "$BUILD_DIR"/*.whl
+    log_success "Old wheels removed."
+else
+    log_info "No old wheels found. Starting fresh."
+fi
+
 # 3. Register QEMU for ARM emulation
 log_info "Registering QEMU multi-architecture emulators..."
 docker run --rm --privileged multiarch/qemu-user-static --reset -p yes > /dev/null 2>&1 || true
@@ -75,7 +84,7 @@ docker run --rm \
         python3.7 -m pip install --upgrade pip setuptools wheel
 
         echo '[CONTAINER] Compiling grpcio, grpcio-tools, and protobuf wheels...'
-        python3.7 -m pip wheel --no-cache-dir grpcio grpcio-tools protobuf -w /output
+        python3.7 -m pip wheel --no-cache-dir --no-binary :all: grpcio grpcio-tools protobuf -w /output
         
         echo '[CONTAINER] Setting ownership of built files...'
         chmod 666 /output/*.whl
