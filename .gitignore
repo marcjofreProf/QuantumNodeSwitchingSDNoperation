@@ -60,3 +60,38 @@ __pycache__/
 # --- IDEs and OS Files ---
 .vscode/
 .DS_Store
+
+
+# --- Quantum Node Generated Files ---
+
+# Generated Hardware Configurations
+driver/pin_mappings.json
+
+# Logs (Directories and Symlinks)
+logs
+logs/
+
+# Generated Protobuf definitions and Python stubs
+proto/quantum_switch.proto
+proto/__init__.py
+proto/*_pb2.py
+proto/*_pb2_grpc.py
+
+# Generated Systemd Service Files
+systemd/quantum-gnoi-agent.service# --- Quantum Node Generated Files ---
+
+# Generated Hardware Configurations
+driver/pin_mappings.json
+
+# Logs (Directories and Symlinks)
+logs
+logs/
+
+# Generated Protobuf definitions and Python stubs
+proto/quantum_switch.proto
+proto/__init__.py
+proto/*_pb2.py
+proto/*_pb2_grpc.py
+
+# Generated Systemd Service Files
+systemd/quantum-gnoi-agent.service
