@@ -2,6 +2,7 @@
 # Python Environments & Cache
 # ==========================================
 venv/
+.venv/
 env/
 ENV/
 __pycache__/
@@ -9,7 +10,7 @@ __pycache__/
 *$py.class
 
 # ==========================================
-# Node Bootstrap & Temporary Build Artifacts
+# Temporary Build Artifacts (builds/ wheels remain tracked)
 # ==========================================
 pip_build_tmp/
 *.so
@@ -21,7 +22,6 @@ eggs/
 .eggs/
 parts/
 sdist/
-var/
 wheels/
 *.egg-info/
 .installed.cfg
@@ -30,12 +30,24 @@ wheels/
 # ==========================================
 # Agent Logs & Local Data
 # ==========================================
+logs
 logs/
 *.log
 quantum_logs/
 
 # ==========================================
-# OS Generated Files
+# Quantum Node Auto-Generated Runtime Files
+# ==========================================
+driver/pin_mappings.json
+systemd/quantum-gnoi-agent.service
+
+# Generated Protobuf Python stubs (quantum_switch.proto remains tracked!)
+proto/__init__.py
+proto/*_pb2.py
+proto/*_pb2_grpc.py
+
+# ==========================================
+# OS & IDE Generated Files
 # ==========================================
 .DS_Store
 .DS_Store?
@@ -44,54 +56,5 @@ quantum_logs/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# --- Python Virtual Environment ---
-venv/
-
-# --- Runtime Logs ---
-logs/
-*.log
-
-# --- Python Cache / Compiled Artifacts ---
-__pycache__/
-*.py[cod]
-*$py.class
-
-# --- IDEs and OS Files ---
 .vscode/
-.DS_Store
-
-
-# --- Quantum Node Generated Files ---
-
-# Generated Hardware Configurations
-driver/pin_mappings.json
-
-# Logs (Directories and Symlinks)
-logs
-logs/
-
-# Generated Protobuf definitions and Python stubs
-proto/quantum_switch.proto
-proto/__init__.py
-proto/*_pb2.py
-proto/*_pb2_grpc.py
-
-# Generated Systemd Service Files
-systemd/quantum-gnoi-agent.service# --- Quantum Node Generated Files ---
-
-# Generated Hardware Configurations
-driver/pin_mappings.json
-
-# Logs (Directories and Symlinks)
-logs
-logs/
-
-# Generated Protobuf definitions and Python stubs
-proto/quantum_switch.proto
-proto/__init__.py
-proto/*_pb2.py
-proto/*_pb2_grpc.py
-
-# Generated Systemd Service Files
-systemd/quantum-gnoi-agent.service
+.idea/
