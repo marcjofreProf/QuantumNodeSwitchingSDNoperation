@@ -76,9 +76,19 @@ fi
 # --- Phase 4: Network Route Fallback Cleanup ---
 if prompt_yes_no "Phase 4: Remove fallback default route (10.0.0.1) if active?"; then
     if ip route show | grep -q "default via 10.0.0.1"; then
-        log_info "Removing route default via 10.0.0.1..."
-        sudo ip route del default via 10.0.0.1 || true
-        log_success "Fallback route removed."
+        # Count total default routes active on the system
+        total_default_routes=$(ip route show | grep -c "^default")
+
+        if [ "$total_default_routes" -gt 1 ]; then
+            log_info "Multiple default routes detected. Safely removing fallback route via 10.0.0.1..."
+            sudo ip route del default via 10.0.0.1 || true
+            log_success "Fallback route removed."
+        else
+            log_warn "Route 10.0.0.1 is the ONLY active default route on this node."
+            log_warn "Skipping deletion to prevent losing network/internet connectivity."
+        fi
+    else
+        log_info "Fallback route 10.0.0.1 is not currently active."
     fi
 fi
 
