@@ -45,7 +45,8 @@ If you need to update the version of gRPC or rebuild the wheels for any reason, 
 2. Navigate to the `builds` directory:
    ```bash
    cd builds
-   sudo chmod +x ./BBBgrpcioCrossLinkingBuild.sh.sh
+   sudo chmod +x ./BBBgrpcioCrossLinkingBuild.sh
+   ./BBBgrpcioCrossLinkingBuild.sh
    ```
 
 ## Quickstart (BeagleBone Black)
