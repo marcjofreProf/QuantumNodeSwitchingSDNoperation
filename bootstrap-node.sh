@@ -139,13 +139,13 @@ if prompt_yes_no "Phase 1.5: Run system cleanup to free up eMMC storage?"; then
     log_success "System cleanup complete. eMMC storage freed safely."
 fi
 
-# --- Phase 1.8: SD Card Setup for Logging ---
+# --- Phase 1.8: SD Card Setup for Logging & APT Cache ---
 if [ "$ARCH" = "aarch64" ]; then
     log_info "Phase 1.8: BB-AI64 detected. SD Card setup is not required. Skipping..."
 else
     log_info "Phase 1.8: BBB detected. An SD card is HIGHLY RECOMMENDED for offloading logs and preserving eMMC life."
     
-    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card for logs?"; then
+    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card for logs and APT cache?"; then
         SD_DISK="/dev/mmcblk0"
         SD_PART="/dev/mmcblk0p1"
         
@@ -194,9 +194,17 @@ else
             
             log_info "Setting permissions for user $USER on SD card..."
             sudo chown -R $USER:$USER /mnt/sdcard
+
+            # --- NEW: APT Cache Offloading ---
+            log_info "Offloading APT package cache to SD card to save eMMC space..."
+            sudo mkdir -p /mnt/sdcard/apt-cache/partial
+            sudo chown -R _apt:root /mnt/sdcard/apt-cache
+            sudo rm -rf /var/cache/apt/archives
+            sudo ln -s /mnt/sdcard/apt-cache /var/cache/apt/archives
+            log_success "APT cache successfully linked to SD card."
         fi
     else
-        log_warn "Skipping Phase 1.8. Logs will be kept on the internal eMMC."
+        log_warn "Skipping Phase 1.8. Logs and APT cache will be kept on the internal eMMC."
     fi
 fi
 
@@ -210,7 +218,20 @@ if prompt_yes_no "Phase 2: Install gRPC, Protobuf, and Python environment?"; the
 
     log_info "Setting up Python virtual environment (./venv)..."
     rm -rf venv
-    virtualenv --system-site-packages venv
+    
+    # --- NEW: VENV SD Card Offloading ---
+    if mountpoint -q /mnt/sdcard; then
+        log_info "SD Card detected! Offloading Python virtual environment to /mnt/sdcard/venv..."
+        mkdir -p /mnt/sdcard/venv
+        sudo chown -R $USER:$USER /mnt/sdcard/venv
+        virtualenv --system-site-packages /mnt/sdcard/venv
+        ln -sfn /mnt/sdcard/venv venv
+        log_success "Virtual environment successfully linked to SD card."
+    else
+        log_warn "No SD card mounted. Creating virtual environment locally on eMMC..."
+        virtualenv --system-site-packages venv
+    fi
+
     source venv/bin/activate
     pip install --upgrade pip
 
