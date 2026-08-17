@@ -48,6 +48,23 @@ If you need to update the version of gRPC or rebuild the wheels for any reason, 
 
 ## Quickstart (BeagleBone Black)
 
+### Storage Management in BBB (SD Card Symlinking)
+To conserve internal storage on the edge nodes, download the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
+
+> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
+
+```bash
+sudo mount /dev/mmcblk0p1 /mnt/sdcard
+sudo mkdir -p /mnt/sdcard/Scripts
+sudo chown -R debian:debian /mnt/sdcard/Scripts
+
+cd ~/Scripts
+
+# Create a symbolic link in the home directory pointing to the SD card
+ln -s /mnt/sdcard/Scripts ~/Scripts
+
+---
+
 A bootstrap script is provided to instantly configure a fresh BeagleBone Black with the required dependencies, GPIO libraries, gRPC tooling, and folder structure.
 
 **1. Clone the repository on the BeagleBone Black**
@@ -65,23 +82,6 @@ sudo chmod +x ./bootstrap-node.sh
 ```bash
 ./bootstrap-node.sh
 ```
-
-> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
-
-> **Note on BBB apt repositories:** In `/home/debian/`, create the directory `Scripts` (`mkdir Scripts`). Then, download the repository.
-
-### Storage Management (SD Card Symlinking)
-To conserve internal storage on the edge nodes, download the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
-
-```bash
-sudo mount /dev/mmcblk0p1 /mnt/sdcard
-sudo mkdir -p /mnt/sdcard/Scripts
-sudo chown -R debian:debian /mnt/sdcard/Scripts
-
-cd ~/Scripts
-
-# Create a symbolic link in the home directory pointing to the SD card
-ln -s /mnt/sdcard/Scripts ~/Scripts
 
 ### Issues with packet repositories
 If you experience issues with `apt` and `apt-get`, edit your sources list (`sudo nano /etc/apt/sources.list`) to match the following archive mirrors for Debian Buster:
