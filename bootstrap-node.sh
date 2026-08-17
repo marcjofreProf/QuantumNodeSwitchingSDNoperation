@@ -89,8 +89,8 @@ if prompt_yes_no "Phase 0.5: Synchronize system time (fixes SSL and APT certific
     fi
 fi
 
-# --- Phase 0.7: PRE-EMPTIVE System Cleanup ---
-if prompt_yes_no "Phase 0.7: Run pre-emptive cleanup to free up eMMC storage before downloads?"; then
+# --- Phase 0.7: PRE-EMPTIVE Deep System Cleanup ---
+if prompt_yes_no "Phase 0.7: Run pre-emptive deep cleanup to free up eMMC storage before downloads?"; then
     log_info "Purging unneeded packages and cleaning APT cache..."
     sudo apt-get autoremove --purge -y
     sudo apt-get clean
@@ -99,21 +99,42 @@ if prompt_yes_no "Phase 0.7: Run pre-emptive cleanup to free up eMMC storage bef
     sudo journalctl --vacuum-time=1s 2>/dev/null || true
     sudo journalctl --vacuum-size=2M 2>/dev/null || true
 
-    log_info "Clearing cached manual pages to prevent mandb space errors..."
-    sudo rm -rf /var/cache/man/*
-
     log_info "Clearing rotated log archives in /var/log..."
     sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete
     
     log_info "Truncating active text logs safely..."
     sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} + 2>/dev/null || true
 
+    # --- NEW: Deep OS Documentation and Locale Wipe (~150MB+ saved) ---
+    log_info "Wiping system documentation, manual pages, and unused language locales..."
+    sudo rm -rf /usr/share/doc/*
+    sudo rm -rf /usr/share/man/*
+    sudo rm -rf /usr/share/info/*
+    sudo rm -rf /usr/share/locale/*
+    sudo rm -rf /var/cache/man/*
+
+    log_info "Configuring dpkg to permanently drop docs and locales on future installs..."
+    if [ ! -f /etc/dpkg/dpkg.cfg.d/01_nodoc ]; then
+        cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc >/dev/null
+
+        path-exclude /usr/share/doc/*
+path-exclude /usr/share/man/*
+path-exclude /usr/share/info/*
+path-exclude /usr/share/locale/*
+path-include /usr/share/locale/en*
+EOF
+
+        log_success "dpkg nodoc configuration created."
+    else
+        log_info "dpkg nodoc configuration already exists. Skipping creation."
+    fi
+    
     log_info "Clearing temporary files and user caches..."
     sudo rm -rf /tmp/* /var/tmp/*
     rm -rf ~/.cache/*
     sudo rm -rf /root/.cache/*
-
-    log_success "Pre-emptive system cleanup complete. eMMC storage freed safely."
+    
+    log_success "Deep system cleanup complete. Maximum eMMC storage freed."
 fi
 
 # --- Phase 0.8: PRE-EMPTIVE SD Card Setup for Logging & APT Cache ---
