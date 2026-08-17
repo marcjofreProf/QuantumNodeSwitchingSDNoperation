@@ -71,7 +71,7 @@ sudo chmod +x ./bootstrap-node.sh
 > **Note on BBB apt repositories:** In `/home/debian/`, create the directory `Scripts` (`mkdir Scripts`). Then, download the repository.
 
 ### Storage Management (SD Card Symlinking)
-To conserve internal storage on the edge nodes, move the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
+To conserve internal storage on the edge nodes, download the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
 
 ```bash
 sudo mount /dev/mmcblk0p1 /mnt/sdcard
@@ -83,7 +83,8 @@ cd ~/Scripts
 # Create a symbolic link in the home directory pointing to the SD card
 ln -s /mnt/sdcard/Scripts ~/Scripts
 
-> If you experience issues with `apt` and `apt-get`, edit your sources list (`sudo nano /etc/apt/sources.list`) to match the following archive mirrors for Debian Buster:
+### Issues with packet repositories
+If you experience issues with `apt` and `apt-get`, edit your sources list (`sudo nano /etc/apt/sources.list`) to match the following archive mirrors for Debian Buster:
 
 ```text
 deb [http://archive.debian.org/debian](http://archive.debian.org/debian) buster main contrib non-free
