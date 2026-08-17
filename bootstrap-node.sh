@@ -210,6 +210,7 @@ if prompt_yes_no "Phase 3: Install GPIO control libraries (libgpiod)?"; then
 fi
 
 # --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
+# --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
 if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?"; then
     log_info "Creating node-level folder structure..."
     mkdir -p agent driver proto systemd test
@@ -220,6 +221,8 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
         rm -rf logs
         ln -sfn /mnt/sdcard/quantum_logs logs
     else
+        # Safely remove any existing symlink before creating local folder
+        [ -L logs ] && rm -f logs
         mkdir -p logs
     fi
 
