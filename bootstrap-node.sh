@@ -116,7 +116,6 @@ if prompt_yes_no "Phase 0.7: Run pre-emptive deep cleanup to free up eMMC storag
     log_info "Configuring dpkg to permanently drop docs and locales on future installs..."
     if [ ! -f /etc/dpkg/dpkg.cfg.d/01_nodoc ]; then
         cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc >/dev/null
-
         path-exclude /usr/share/doc/*
 path-exclude /usr/share/man/*
 path-exclude /usr/share/info/*
