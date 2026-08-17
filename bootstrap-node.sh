@@ -93,6 +93,7 @@ fi
 # --- Phase 1: System Updates & Architecture-Specific Fixes ---
 if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
     log_info "Updating APT package lists..."
+    sudo rm -rf /var/lib/apt/lists/*
     sudo apt-get update -y
     
     if [ "$ARCH" = "aarch64" ]; then
