@@ -1,0 +1,10 @@
+{
+  "switch_type": "MEMS_Optical_Matrix",
+  "vendor": "Generic",
+  "gpio_port_map": {
+    "port_A_in": 68,
+    "port_B_out": 69,
+    "strobe_pin": 44
+  },
+  "logic_level": "TTL_3V3_to_5V_Isolated"
+}

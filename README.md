@@ -153,3 +153,12 @@ Manual Execution (For Debugging)
 If you need to run the agent interactively to debug gRPC connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
 
 sudo ./venv/bin/python3 agent/gnoi_agent.py
+
+
+## Teardown & System Cleanup
+
+To stop the agent systemd service, unmount offloaded SD card storage, remove virtual environments, and clean untracked files from the node workspace, run the uninstall script:
+
+```bash
+sudo chmod +x uninstall-bootstrap-node.sh
+./uninstall-bootstrap-node.sh

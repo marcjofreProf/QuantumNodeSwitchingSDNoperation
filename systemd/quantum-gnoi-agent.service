@@ -1,0 +1,16 @@
+[Unit]
+Description=Quantum SDN gNOI Operations Agent
+After=network.target
+
+[Service]
+Type=simple
+User=debian
+WorkingDirectory=/home/debian/Scripts/QuantumNodeSwitchingSDNoperation
+ExecStart=/home/debian/Scripts/QuantumNodeSwitchingSDNoperation/venv/bin/python3 /home/debian/Scripts/QuantumNodeSwitchingSDNoperation/agent/gnoi_agent.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/debian/Scripts/QuantumNodeSwitchingSDNoperation/logs/agent.log
+StandardError=append:/home/debian/Scripts/QuantumNodeSwitchingSDNoperation/logs/agent.log
+
+[Install]
+WantedBy=multi-user.target
