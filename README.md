@@ -75,8 +75,10 @@ To conserve internal storage on the edge nodes, move the project directory to an
 
 ```bash
 sudo mount /dev/mmcblk0p1 /mnt/sdcard
-# Move the project to the SD card
-mv ~/Scripts /mnt/sdcard/
+sudo mkdir -p /mnt/sdcard/Scripts
+sudo chown -R debian:debian /mnt/sdcard/Scripts
+
+cd ~/Scripts
 
 # Create a symbolic link in the home directory pointing to the SD card
 ln -s /mnt/sdcard/Scripts ~/Scripts
