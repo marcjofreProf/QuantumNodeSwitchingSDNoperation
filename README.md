@@ -57,14 +57,15 @@ To conserve internal storage on the edge nodes, download the project directory t
 > **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
 
 ```bash
+sudo mkdir -p /mnt/sdcard
 sudo mount /dev/mmcblk0p1 /mnt/sdcard
 sudo mkdir -p /mnt/sdcard/Scripts
 sudo chown -R debian:debian /mnt/sdcard/Scripts
 
-cd ~/Scripts
-
-# Create a symbolic link in the home directory pointing to the SD card
+# Create a symbolic link (if already not created in the original image) in the home directory pointing to the SD card
 ln -s /mnt/sdcard/Scripts ~/Scripts
+
+cd ~/Scripts
 ```
 
 A bootstrap script is provided to instantly configure a fresh BeagleBone Black with the required dependencies, GPIO libraries, gRPC tooling, and folder structure.
