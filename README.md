@@ -45,6 +45,8 @@ If you need to update the version of gRPC or rebuild the wheels for any reason, 
 2. Navigate to the `builds` directory:
    ```bash
    cd builds
+   sudo chmod +x ./BBBgrpcioCrossLinkingBuild.sh.sh
+   ```
 
 ## Quickstart (BeagleBone Black)
 
@@ -62,8 +64,7 @@ cd ~/Scripts
 
 # Create a symbolic link in the home directory pointing to the SD card
 ln -s /mnt/sdcard/Scripts ~/Scripts
-
----
+```
 
 A bootstrap script is provided to instantly configure a fresh BeagleBone Black with the required dependencies, GPIO libraries, gRPC tooling, and folder structure.
 
