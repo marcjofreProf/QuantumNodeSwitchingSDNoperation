@@ -74,6 +74,7 @@ sudo chmod +x ./bootstrap-node.sh
 To conserve internal storage on the edge nodes, move the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
 
 ```bash
+sudo mount /dev/mmcblk0p1 /mnt/sdcard
 # Move the project to the SD card
 mv ~/Scripts /mnt/sdcard/
 
