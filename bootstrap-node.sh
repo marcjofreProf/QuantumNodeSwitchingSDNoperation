@@ -19,7 +19,8 @@ log_error() { echo -e "${RED}[ERROR] $1${NC}"; }
 
 prompt_yes_no() {
     while true; do
-        read -p "$1 [y/N]: " yn
+        echo -e -n "$1 [y/N]; "
+	read yn
         case $yn in
             [Yy]* ) return 0;;
             [Nn]* | "" ) return 1;;
@@ -143,9 +144,18 @@ else
     log_info "Phase 0.8: BBB detected. Routing APT Cache and logs to SD card to preserve eMMC..."
     
     if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card?"; then
-        SD_DISK="/dev/mmcblk0"
-        SD_PART="/dev/mmcblk0p1"
-        
+	# Find which drive hosts the active OS root filesystem
+	ROOT_MMC=$(findmnt -n -o SOURCE / | grep -o 'mmcblk[0-9]')
+	
+	# Dynamically target the other MMC device for the SD card
+	if [ "$ROOT_MMC" = "mmcblk0" ]; then
+	    SD_DISK="/dev/mmcblk1"
+	    SD_PART="/dev/mmcblk1p1"
+	else
+	    SD_DISK="/dev/mmcblk0"
+	    SD_PART="/dev/mmcblk0p1"
+	fi
+
         while [ ! -b "$SD_DISK" ]; do
             echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
             read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
