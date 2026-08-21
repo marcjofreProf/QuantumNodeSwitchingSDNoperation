@@ -172,8 +172,22 @@ else
             if ! sudo blkid $SD_PART | grep -q "ext4"; then
                 log_warn "SD Card is NOT formatted as ext4 or partition is missing."
                 if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
+                    log_info "Stopping active services to release the SD card..."
+                    
+                    # 1. Stop your agent if it is currently running from a previous install
+                    sudo systemctl stop quantum-gnoi-agent 2>/dev/null || true
+                    
+                    # 2. Break the APT cache symlink in case background tasks are scanning it
+                    if [ -L /var/cache/apt/archives ]; then
+                        sudo rm -f /var/cache/apt/archives
+                        sudo mkdir -p /var/cache/apt/archives/partial
+                    fi
+                    
+                    # 3. Unmount the mount point directly, then forceful lazy unmount the raw disk
+                    sudo umount /mnt/sdcard 2>/dev/null || true
+                    sudo umount -l ${SD_DISK}* 2>/dev/null || true
+                    
                     log_info "Formatting $SD_DISK to ext4..."
-                    sudo umount ${SD_DISK}* 2>/dev/null || true
                     sudo parted -s $SD_DISK mklabel msdos
                     sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
                     sudo partprobe $SD_DISK
