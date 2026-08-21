@@ -31,7 +31,7 @@ This circuit-switched data plane achieves physical switching delays ranging from
 
 ### Accelerated gRPC Installation (Pre-built Wheels)
 
-Building heavy C++ Python libraries like `grpcio` and `protobuf` from source directly on the BeagleBone Black (ARM32v7, 512MB RAM) is incredibly slow—taking up to 12 hours—and requires generating massive temporary swap partitions to prevent memory crashes.
+Building heavy C++ Python libraries like `grpcio` and `protobuf` from source directly on the BeagleBone Black (ARM32v7, 512MB RAM) is incredibly slow - taking up to 12 hours - and requires generating massive temporary swap partitions to prevent memory crashes.
 
 To solve this, this repository uses a **host-based cross-compilation** strategy. By leveraging Docker and QEMU on a standard desktop/laptop, we emulate the BBB's 32-bit Debian Buster environment and compile Python Wheels (`.whl` files) in a fraction of the time.
 
@@ -54,7 +54,7 @@ If you need to update the version of gRPC or rebuild the wheels for any reason, 
 ### Storage Management in BBB (SD Card Symlinking)
 To conserve internal storage on the edge nodes, download the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
 
-> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear.
+> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear. In the available BBB eMMC image flasher, the below steps have been incorporated to the executed at boot-up (in BBB /usr/local/bin/sd-auto-prep.sh).
 
 ```bash
 cd ~
