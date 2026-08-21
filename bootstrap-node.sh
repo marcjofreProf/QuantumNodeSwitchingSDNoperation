@@ -150,17 +150,15 @@ else
 	# Dynamically target the other MMC device for the SD card
 	if [ "$ROOT_MMC" = "mmcblk0" ]; then
 	    SD_DISK="/dev/mmcblk1"
-	    SD_PART="/dev/mmcblk1p1"
 	else
 	    SD_DISK="/dev/mmcblk0"
-	    SD_PART="/dev/mmcblk0p1"
 	fi
 
         while [ ! -b "$SD_DISK" ]; do
             echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
             read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
             if [ "$sd_input" = "skip" ]; then
-                log_warn "Skipping SD card setup. Warning: Installs and logs will write directly to internal eMMC flash storage."
+                log_warn "Skipping SD card setup."
                 break
             fi
             sleep 2
@@ -169,21 +167,22 @@ else
         if [ -b "$SD_DISK" ]; then
             log_info "Detected SD Card hardware at $SD_DISK."
             
-            if ! sudo blkid $SD_PART | grep -q "ext4"; then
-                log_warn "SD Card is NOT formatted as ext4 or partition is missing."
+            # --- NEW: Check if raw disk OR partition is used ---
+            if sudo blkid $SD_DISK | grep -q "ext4"; then
+                SD_TARGET="$SD_DISK"
+            else
+                SD_TARGET="${SD_DISK}p1"
+            fi
+            
+            if ! sudo blkid $SD_TARGET | grep -q "ext4"; then
+                log_warn "SD Card is NOT formatted as ext4."
                 if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
                     log_info "Stopping active services to release the SD card..."
-                    
-                    # 1. Stop your agent if it is currently running from a previous install
                     sudo systemctl stop quantum-gnoi-agent 2>/dev/null || true
-                    
-                    # 2. Break the APT cache symlink in case background tasks are scanning it
                     if [ -L /var/cache/apt/archives ]; then
                         sudo rm -f /var/cache/apt/archives
                         sudo mkdir -p /var/cache/apt/archives/partial
                     fi
-                    
-                    # 3. Unmount the mount point directly, then forceful lazy unmount the raw disk
                     sudo umount /mnt/sdcard 2>/dev/null || true
                     sudo umount -l ${SD_DISK}* 2>/dev/null || true
                     
@@ -192,21 +191,23 @@ else
                     sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
                     sudo partprobe $SD_DISK
                     sleep 2
-                    sudo mkfs.ext4 -F $SD_PART
+                    
+                    SD_TARGET="${SD_DISK}p1"
+                    sudo mkfs.ext4 -F $SD_TARGET
                     log_success "SD Card successfully formatted."
                 else
                     log_warn "Skipping format."
                 fi
             else
-                log_success "SD Card partition $SD_PART is properly formatted as ext4."
+                log_success "SD Card $SD_TARGET is properly formatted as ext4. Skipping format!"
             fi
 
             sudo mkdir -p /mnt/sdcard
             if ! mountpoint -q /mnt/sdcard; then
                 log_info "Mounting SD card to /mnt/sdcard..."
-                sudo mount $SD_PART /mnt/sdcard || log_error "Failed to mount $SD_PART."
-                if ! grep -q "$SD_PART /mnt/sdcard" /etc/fstab; then
-                    echo "$SD_PART /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
+                sudo mount $SD_TARGET /mnt/sdcard || log_error "Failed to mount $SD_TARGET."
+                if ! grep -q "$SD_TARGET /mnt/sdcard" /etc/fstab; then
+                    echo "$SD_TARGET /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
                     log_success "Added SD card to /etc/fstab."
                 fi
             else
