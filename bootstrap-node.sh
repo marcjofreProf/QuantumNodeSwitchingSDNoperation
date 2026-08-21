@@ -397,7 +397,7 @@ WantedBy=multi-user.target
 EOF
 
     log_info "Linking to /etc/systemd/system/..."
-    sudo ln -sf "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/quantum-gnoi-agent.service
+    sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/quantum-gnoi-agent.service
     sudo systemctl daemon-reload
     
     log_info "Enabling and starting the quantum-gnoi-agent service..."
