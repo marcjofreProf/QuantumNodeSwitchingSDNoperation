@@ -372,7 +372,11 @@ fi
 # --- Phase 5: Systemd Service Scaffold ---
 if prompt_yes_no "Phase 5: Generate and install systemd service (quantum-gnoi-agent)?"; then
     log_info "Generating Systemd Configuration..."
-    cat <<EOF > systemd/quantum-gnoi-agent.service
+    
+    # Calculate the exact, absolute path of the project folder
+    PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    
+    cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnoi-agent.service"
 [Unit]
 Description=Quantum SDN gNOI Operations Agent
 After=network.target local-fs.target
@@ -381,19 +385,19 @@ RequiresMountsFor=/mnt/sdcard
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/venv/bin/python3 $(pwd)/agent/gnoi_agent.py
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/gnoi_agent.py
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:$(pwd)/logs/agent.log
-StandardError=append:$(pwd)/logs/agent.log
+StandardOutput=append:$PROJECT_DIR/logs/agent.log
+StandardError=append:$PROJECT_DIR/logs/agent.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     log_info "Linking to /etc/systemd/system/..."
-    sudo ln -sf $(pwd)/systemd/quantum-gnoi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
+    sudo ln -sf "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/quantum-gnoi-agent.service
     sudo systemctl daemon-reload
     
     log_info "Enabling and starting the quantum-gnoi-agent service..."
