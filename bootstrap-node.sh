@@ -173,7 +173,7 @@ else
                 log_warn "SD Card is NOT formatted as ext4 or partition is missing."
                 if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
                     log_info "Formatting $SD_DISK to ext4..."
-                    sudo umount $SD_PART 2>/dev/null || true
+                    sudo umount ${SD_DISK}* 2>/dev/null || true
                     sudo parted -s $SD_DISK mklabel msdos
                     sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
                     sudo partprobe $SD_DISK
