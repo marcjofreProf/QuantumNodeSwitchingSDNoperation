@@ -360,7 +360,8 @@ if prompt_yes_no "Phase 5: Generate and install systemd service (quantum-gnoi-ag
     cat <<EOF > systemd/quantum-gnoi-agent.service
 [Unit]
 Description=Quantum SDN gNOI Operations Agent
-After=network.target
+After=network.target local-fs.target
+RequiresMountsFor=/mnt/sdcard
 
 [Service]
 Type=simple
