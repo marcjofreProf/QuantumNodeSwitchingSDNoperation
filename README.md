@@ -54,7 +54,7 @@ If you need to update the version of gRPC or rebuild the wheels for any reason, 
 ### Storage Management in BBB (SD Card Symlinking)
 To conserve internal storage on the edge nodes, download the project directory to an external SD card and create a symbolic link. This routes all data to the SD card while allowing the system and scripts to seamlessly access the files at their original `~/Scripts` location.
 
-> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear. In the available BBB eMMC image flasher, the below steps have been incorporated to the executed at boot-up (in BBB /usr/local/bin/sd-auto-prep.sh).
+> **Note on Storage:** Insert the microSD card *after* the system has booted. The bootstrap script can automatically detect, format (to ext4), and mount an inserted microSD card to seamlessly offload heavy C++ compilation artifacts and store persistent agent logs, bypassing the BeagleBone Black's limited eMMC storage and preventing premature flash wear. In the available BBB eMMC image flasher, the below steps have been incorporated to the executed at boot-up (in BBB /usr/local/bin/sd-auto-prep.sh, and activated thorugh service sdcard-prep.service).
 
 ```bash
 cd ~
