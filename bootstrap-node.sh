@@ -334,13 +334,13 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
 }
 EOF
 
-    log_info "Generating gNOI Protobuf definition (proto/quantum_switch.proto)..."
-    cat <<EOF > proto/quantum_switch.proto
+    log_info "Generating gNOI Protobuf definition (proto/quantum_gnoi_switching.proto)..."
+    cat <<EOF > proto/quantum_gnoi_switching.proto
 syntax = "proto3";
 
-package quantum.switch.v1;
+package quantum.gnoi.switching.v1;
 
-service QuantumSwitchService {
+service QuantumGnoiSwitchingService {
   rpc SetCrossConnect (CrossConnectRequest) returns (CrossConnectResponse);
   rpc GetCrossConnectStatus (StatusRequest) returns (StatusResponse);
 }
@@ -364,7 +364,7 @@ EOF
 
     log_info "Compiling gRPC Python stubs..."
     touch proto/__init__.py
-    ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_switch.proto
+    ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
     
     log_success "Directories, configurations, and Protobufs successfully created."
 fi
