@@ -9,8 +9,8 @@ import grpc
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from driver.switch_control import OpticalMatrixDriver
-from proto import quantum_gnoi_switching_pb2
-from proto import quantum_gnoi_switching_pb2_grpc
+import quantum_gnoi_switching_pb2
+import quantum_gnoi_switching_pb2_grpc
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
