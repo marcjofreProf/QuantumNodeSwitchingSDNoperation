@@ -38,11 +38,13 @@ quantum_logs/
 # ==========================================
 # Quantum Node Auto-Generated Runtime Files
 # ==========================================
+driver/gnoi_pin_mappings.json
+driver/netconf_pin_mappings.json
 driver/pin_mappings.json
 systemd/quantum-gnoi-agent.service
 systemd/quantum-netconf-agent.service
 
-# Generated Protobuf Python stubs (quantum_switch.proto remains tracked!)
+# Generated Protobuf Python stubs
 proto/__init__.py
 proto/*_pb2.py
 proto/*_pb2_grpc.py
@@ -56,6 +58,9 @@ proto/*_pb2_grpc.py
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
 Thumbs.db
 .vscode/
 .idea/
