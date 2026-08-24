@@ -38,18 +38,26 @@ if ! prompt_yes_no "Proceed with stopping node services and cleaning runtime env
 fi
 
 # --- Phase 1: Systemd Service Cleanup ---
-if prompt_yes_no "Phase 1: Stop and remove systemd service (quantum-gnoi-agent)?"; then
-    log_info "Stopping and disabling quantum-gnoi-agent service..."
-    sudo systemctl stop quantum-gnoi-agent 2>/dev/null || true
-    sudo systemctl disable quantum-gnoi-agent 2>/dev/null || true
+if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-gnoi-agent, quantum-netconf-agent)?"; then
+    log_info "Stopping and disabling agent services..."
+    sudo systemctl stop quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
+    sudo systemctl disable quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
 
+    # Clean up gNOI service
     if [ -L "/etc/systemd/system/quantum-gnoi-agent.service" ] || [ -f "/etc/systemd/system/quantum-gnoi-agent.service" ]; then
-        log_info "Removing systemd service symlink..."
+        log_info "Removing gNOI systemd service symlink..."
         sudo rm -f /etc/systemd/system/quantum-gnoi-agent.service
-        sudo systemctl daemon-reload
-        sudo systemctl reset-failed
-        log_success "Systemd service removed."
     fi
+
+    # Clean up NETCONF service
+    if [ -L "/etc/systemd/system/quantum-netconf-agent.service" ] || [ -f "/etc/systemd/system/quantum-netconf-agent.service" ]; then
+        log_info "Removing NETCONF systemd service symlink..."
+        sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
+    fi
+
+    sudo systemctl daemon-reload
+    sudo systemctl reset-failed
+    log_success "Systemd services removed."
 fi
 
 # --- Phase 2: Python Virtual Environment Cleanup ---
