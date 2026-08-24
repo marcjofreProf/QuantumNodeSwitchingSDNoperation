@@ -253,6 +253,9 @@ if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
           python3.7-dev=3.7.3-2+deb10u3 \
           libpython3.7-dev=3.7.3-2+deb10u3
     fi
+
+	# PAckages for NETCONF and related
+	check_and_install python3-ncclient python3-paramiko python3-lxml python3-cryptography
 fi
 
 # --- Phase 2: gRPC, Protobuf, and VirtualEnv ---
