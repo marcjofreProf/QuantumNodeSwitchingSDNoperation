@@ -373,17 +373,26 @@ EOF
 fi
 
 # --- Phase 5: Systemd Service Scaffold ---
-if prompt_yes_no "Phase 5: Generate and install systemd service (quantum-gnoi-agent)?"; then
-    log_info "Generating Systemd Configuration..."
+if prompt_yes_no "Phase 5: Generate and install systemd services (quantum-gnoi-agent & quantum-netconf-agent)?"; then
+    log_info "Generating Systemd Service Configurations..."
     
     # Calculate the exact, absolute path of the project folder
     PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     
+    # Dynamically check if SD card is mounted to avoid systemd mount dependency failures on eMMC-only setups
+    REQUIRES_SD=""
+    if mountpoint -q /mnt/sdcard; then
+        REQUIRES_SD="RequiresMountsFor=/mnt/sdcard"
+    fi
+
+    # -----------------------------------------------------------------------
+    # 1. gNOI Service Configuration
+    # -----------------------------------------------------------------------
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnoi-agent.service"
 [Unit]
 Description=Quantum SDN gNOI Operations Agent
 After=network.target local-fs.target
-RequiresMountsFor=/mnt/sdcard
+$REQUIRES_SD
 
 [Service]
 Type=simple
@@ -399,24 +408,14 @@ StandardError=append:$PROJECT_DIR/logs/agent.log
 WantedBy=multi-user.target
 EOF
 
-    log_info "Linking to /etc/systemd/system/..."
-	# 1. Destroy the old symlink so it doesn't block the copy command
-    sudo rm -f /etc/systemd/system/quantum-gnoi-agent.service
-	# 2. Hard copy the file so systemd can read it before the SD card mounts
-    sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/quantum-gnoi-agent.service
-    
-	sudo systemctl daemon-reload
-    
-    log_info "Enabling and starting the quantum-gnoi-agent service..."
-    sudo systemctl enable quantum-gnoi-agent
-    sudo systemctl start quantum-gnoi-agent
-
-	log_info "Generating NETCONF Systemd Configuration..."
+    # -----------------------------------------------------------------------
+    # 2. NETCONF Service Configuration
+    # -----------------------------------------------------------------------
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
 [Unit]
 Description=Quantum SDN NETCONF Operations Agent
 After=network.target local-fs.target
-RequiresMountsFor=/mnt/sdcard
+$REQUIRES_SD
 
 [Service]
 Type=simple
@@ -432,17 +431,19 @@ StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
 WantedBy=multi-user.target
 EOF
 
-    log_info "Linking NETCONF service to /etc/systemd/system/..."
-    sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
+    log_info "Copying systemd unit files to /etc/systemd/system/..."
+    sudo rm -f /etc/systemd/system/quantum-gnoi-agent.service /etc/systemd/system/quantum-netconf-agent.service
+    sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/quantum-gnoi-agent.service
     sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/quantum-netconf-agent.service
     
+    log_info "Reloading systemd daemon..."
     sudo systemctl daemon-reload
     
-    log_info "Enabling and starting the quantum-netconf-agent service..."
-    sudo systemctl enable quantum-netconf-agent
-    sudo systemctl start quantum-netconf-agent
+    log_info "Enabling and starting quantum-gnoi-agent and quantum-netconf-agent services..."
+    sudo systemctl enable quantum-gnoi-agent quantum-netconf-agent
+    sudo systemctl restart quantum-gnoi-agent quantum-netconf-agent
     
-    log_success "Systemd service configured, enabled on boot, and currently running."    
+    log_success "Systemd services configured, enabled on boot, and currently running."    
 fi
 
 echo -e "${GREEN}====================================================${NC}"
