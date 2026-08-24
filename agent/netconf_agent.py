@@ -79,7 +79,26 @@ def process_rpc(channel, xml_data):
 
         message_id = root.get('message-id', '1')
         
-        # Match set-netconf-switch RPC from quantum-netconf-switch.yang
+        # 1. Match <get> RPC (Used by the 'status' command)
+        if root.find('.//*{urn:ietf:params:xml:ns:netconf:base:1.0}get') is not None:
+            logger.info("Executing <get> RPC to fetch hardware state.")
+            
+            # Fetch state from driver (fallback to False if method doesn't exist yet)
+            current_state = getattr(netconf_hw, 'get_netconf_switch_state', lambda: False)()
+            state_str = 'true' if current_state else 'false'
+            
+            reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+    <data>
+        <netconf-switch xmlns="urn:quantum:sdn:netconf-switch">
+            <switch-state>{state_str}</switch-state>
+            <switch-type>MEMS-Optical</switch-type>
+        </netconf-switch>
+    </data>
+</rpc-reply>"""
+            channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
+            return
+
+        # 2. Match set-netconf-switch RPC (Used by 'connect' / 'disconnect' commands)
         set_cc = root.find('.//*{urn:quantum:sdn:netconf-switch}set-netconf-switch')
         if set_cc is not None:
             state_node = set_cc.find('.//*{urn:quantum:sdn:netconf-switch}state')
@@ -95,7 +114,7 @@ def process_rpc(channel, xml_data):
             channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
             return
 
-        # Default fallback response
+        # 3. Default fallback response for unknown RPCs
         reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
     <rpc-error>
         <error-type>application</error-type>
