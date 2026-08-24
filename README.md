@@ -9,14 +9,14 @@ This project works in tandem with the central control plane repository: [Quantum
 
 ## Architecture & Concept
 
-To achieve dynamic quantum path provisioning without control-plane bottlenecks, this node agent bypasses legacy protocols (like NETCONF/XML) and communicates directly with the µONOS SDN controller using **gNOI (gRPC Network Operations Interface)**.
+To achieve dynamic quantum path provisioning without control-plane bottlenecks, this node agent features a **dual-protocol architecture**, supporting both high-speed operations and standard interoperability:
 
-1. **Southbound gNOI:** µONOS sends binary-serialized Protocol Buffers (Protobufs) representing operational port-mapping state changes.
-2. **Node Processing (BBB):** A lightweight gNOI server on the BeagleBone Black receives these state changes with near-zero software latency.
-3. **Hardware Execution:** The BBB translates these commands into TTL logic levels via its GPIO pins.
-4. **Physical Switching:** An opto-decoupled interface safely steps the TTL signals to drive high-speed MEMS or solid-state optical matrix switches (e.g., Agiltron, Thorlabs, Keysight, DiCon).
+1. **Fast-Path gNOI (gRPC Network Operations Interface):** Bypasses legacy protocols to communicate directly with the µONOS SDN controller. It receives binary-serialized Protocol Buffers (Protobufs) representing operational state changes with near-zero software latency.
+2. **Standard NETCONF/YANG:** Hosts a parallel standard SSH/XML server utilizing YANG data models, ensuring full interoperability with traditional SDN orchestrators (like ETSI OSM or OpenDaylight).
+3. **Node Processing (BBB):** The lightweight agents on the BeagleBone Black translate incoming network commands (from either gNOI or NETCONF) into TTL logic levels via the device's GPIO pins.
+4. **Physical Switching:** An opto-decoupled interface safely steps the TTL signals to drive high-speed MEMS or solid-state optical matrix switches.
 
-This circuit-switched data plane achieves physical switching delays ranging from **< 20 milliseconds down to sub-millisecond speeds**, ensuring quantum states (like entangled single photons) pass through without measurement or degradation.
+This circuit-switched data plane achieves physical switching delays ranging from **< 20 milliseconds down to sub-millisecond speeds**, ensuring quantum states pass through without measurement or degradation.
 
 ## Hardware Requirements
 * **Compute:** BeagleBone Black (Debian Linux).
