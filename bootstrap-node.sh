@@ -323,8 +323,8 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
         mkdir -p logs
     fi
 
-    log_info "Generating default pin_mappings.json..."
-    cat <<EOF > driver/pin_mappings.json
+    log_info "Generating default gNOI pin_mappings (driver/gnoi_pin_mappings.json)..."
+    cat <<EOF > driver/gnoi_pin_mappings.json
 {
   "switch_type": "MEMS_Optical_Matrix",
   "vendor": "Generic",
@@ -336,6 +336,21 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
   "logic_level": "TTL_3V3_to_5V_Isolated"
 }
 EOF
+
+    log_info "Generating default NETCONF pin_mappings (driver/netconf_pin_mappings.json)..."
+    cat <<EOF > driver/netconf_pin_mappings.json
+{
+  "switch_type": "NETCONF_Variable_Optical_Attenuator",
+  "vendor": "Generic_NETCONF_Hardware",
+  "gpio_port_map": {
+    "enable_pin": 45
+  },
+  "logic_level": "TTL_3V3"
+}
+EOF
+
+    # Clean up legacy single pin mapping file if it exists
+    rm -f driver/pin_mappings.json
 
     log_info "Generating gNOI Protobuf definition (proto/quantum_gnoi_switching.proto)..."
     cat <<EOF > proto/quantum_gnoi_switching.proto
@@ -369,7 +384,7 @@ EOF
     touch proto/__init__.py
     ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
     
-    log_success "Directories, configurations, and Protobufs successfully created."
+    log_success "Directories, gNOI & NETCONF configurations, and Protobufs successfully created."
 fi
 
 # --- Phase 5: Systemd Service Scaffold ---
