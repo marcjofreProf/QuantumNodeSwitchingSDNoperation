@@ -113,7 +113,16 @@ def process_rpc(channel, xml_data):
             channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
             return
 
-        # 3. Default fallback response
+        # 3. Match <close-session> for graceful disconnects
+        if len(root.xpath('//*[local-name()="close-session"]')) > 0:
+            logger.info("Received <close-session>. Closing gracefully.")
+            reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+    <ok/>
+</rpc-reply>"""
+            channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
+            return
+
+        # 4. Default fallback response
         reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
     <rpc-error>
         <error-type>application</error-type>
