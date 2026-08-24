@@ -121,7 +121,8 @@ def start_server(host='0.0.0.0', port=8300):
         logger.critical(f"Failed to bind port {port}: {e}")
         sys.exit(1)
 
-    host_key = paramiko.RSAKey.generate(2048)
+    # Use modern ECDSA key to comply with modern Python/Paramiko security standards
+    host_key = paramiko.ECDSAKey.generate()
 
     while True:
         client, addr = sock.accept()
