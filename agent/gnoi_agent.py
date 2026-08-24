@@ -8,7 +8,7 @@ import grpc
 # Path resolution for root modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from driver.switch_control import OpticalMatrixDriver
+from driver.gnoi_driver import OpticalMatrixDriver
 from proto import quantum_gnoi_switching_pb2
 from proto import quantum_gnoi_switching_pb2_grpc
 
