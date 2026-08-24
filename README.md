@@ -27,7 +27,8 @@ This circuit-switched data plane achieves physical switching delays ranging from
 * `/agent/` - The core gNOI server (Go/Python) listening for µONOS commands.
 * `/driver/` - Hardware abstraction layer (HAL) for BBB GPIO pin manipulation (using `libgpiod`).
 * `/proto/` - Local copies of the gNOI/gNMI protocol buffer definitions.
-* `/systemd/` - Daemons to run the agent as a persistent background service.
+* `/yang/` - Local copies of the NETCONF YANG data models.
+* `/systemd/` - Daemons to run agents as a persistent background service.
 
 ### Accelerated gRPC Installation (Pre-built Wheels)
 
@@ -116,7 +117,7 @@ deb [arch=armhf signed-by=/usr/share/keyrings/rcn-ee-archive-keyring.gpg] [http:
 
 ## Manual Hardware Testing
 
-Before initiating the gNOI agent, it is highly recommended to verify the physical connections to the MEMS Optical Matrix. A standalone test script is provided to cycle the crossconnect relays without requiring network connectivity or the gRPC server.
+Before initiating agents, it is highly recommended to verify the physical connections to the MEMS Optical Matrix. A standalone test script is provided to cycle the crossconnect relays without requiring network connectivity or the gRPC server.
 
 ### Executing the Test
 
@@ -164,6 +165,39 @@ If you need to run the agent interactively to debug gRPC connectivity, ensure th
 
 sudo ./venv/bin/python3 agent/gnoi_agent.py
 
+## Running the NETCONF Agent
+
+Alongside gNOI, the node also hosts a standard NETCONF server (`agent/netconf_agent.py`) that allows traditional SDN controllers to configure the switch using standard YANG models over SSH (default port `830`).
+
+### Automatic Execution
+
+The `bootstrap-node.sh` script automatically configures and starts the NETCONF systemd service. To manage it:
+
+```bash
+sudo systemctl status quantum-netconf-agent
+sudo systemctl start quantum-netconf-agent
+sudo systemctl restart quantum-netconf-agent
+sudo systemctl stop quantum-netconf-agent
+```
+
+To view live network and hardware logs:
+
+```bash
+sudo journalctl -u quantum-netconf-agent -f
+```
+
+### Manual Execution (For Debugging)
+
+If you need to run the agent interactively to debug NETCONF connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
+
+```bash
+sudo ./venv/bin/python3 agent/gnoi_agent.py
+```
+
+Manual Execution (For Debugging)
+If you need to run the agent interactively to debug NETCONF connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
+
+sudo ./venv/bin/python3 agent/netconf_agent.py
 
 ## Teardown & System Cleanup
 
