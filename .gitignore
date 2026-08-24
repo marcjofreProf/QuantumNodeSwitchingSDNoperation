@@ -40,6 +40,7 @@ quantum_logs/
 # ==========================================
 driver/pin_mappings.json
 systemd/quantum-gnoi-agent.service
+systemd/quantum-netconf-agent.service
 
 # Generated Protobuf Python stubs (quantum_switch.proto remains tracked!)
 proto/__init__.py
