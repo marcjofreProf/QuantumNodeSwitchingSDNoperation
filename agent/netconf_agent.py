@@ -72,18 +72,16 @@ def process_rpc(channel, xml_data):
     """Parses incoming RPCs and executes actions via the dedicated NETCONF driver."""
     try:
         root = etree.fromstring(xml_data)
-        
+        message_id = root.get('message-id', '1')
+
         if root.tag.endswith('hello'):
             logger.info("Received client <hello> capabilities.")
             return
 
-        message_id = root.get('message-id', '1')
-        
-        # 1. Match <get> RPC (Used by the 'status' command)
-        if root.find('.//*{urn:ietf:params:xml:ns:netconf:base:1.0}get') is not None:
+        # 1. Robust <get> matching via XPath local-name
+        if len(root.xpath('//*[local-name()="get"]')) > 0:
             logger.info("Executing <get> RPC to fetch hardware state.")
             
-            # Fetch state from driver (fallback to False if method doesn't exist yet)
             current_state = getattr(netconf_hw, 'get_netconf_switch_state', lambda: False)()
             state_str = 'true' if current_state else 'false'
             
@@ -98,11 +96,12 @@ def process_rpc(channel, xml_data):
             channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
             return
 
-        # 2. Match set-netconf-switch RPC (Used by 'connect' / 'disconnect' commands)
-        set_cc = root.find('.//*{urn:quantum:sdn:netconf-switch}set-netconf-switch')
-        if set_cc is not None:
-            state_node = set_cc.find('.//*{urn:quantum:sdn:netconf-switch}state')
-            state_val = state_node.text.strip().lower() == 'true' if state_node is not None else False
+        # 2. Robust <set-netconf-switch> matching via XPath local-name
+        set_switch_nodes = root.xpath('//*[local-name()="set-netconf-switch"]')
+        if len(set_switch_nodes) > 0:
+            set_cc = set_switch_nodes[0]
+            state_nodes = set_cc.xpath('.//*[local-name()="state"]')
+            state_val = state_nodes[0].text.strip().lower() == 'true' if (len(state_nodes) > 0 and state_nodes[0].text) else False
             
             logger.info(f"Executing set-netconf-switch RPC with state: {state_val}")
             success = netconf_hw.set_netconf_switch_state(state_val)
@@ -140,7 +139,7 @@ def start_server(host='0.0.0.0', port=8300):
         logger.critical(f"Failed to bind port {port}: {e}")
         sys.exit(1)
 
-    # Use modern ECDSA key to comply with modern Python/Paramiko security standards
+    # Modern ECDSA key generation
     host_key = paramiko.ECDSAKey.generate()
 
     while True:
