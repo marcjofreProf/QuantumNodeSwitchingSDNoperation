@@ -311,7 +311,7 @@ fi
 # --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
 if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?"; then
     log_info "Creating node-level folder structure..."
-    mkdir -p agent driver proto systemd test
+    mkdir -p agent driver proto yang systemd test
     
     if mountpoint -q /mnt/sdcard; then
         log_success "SD Card found! Symlinking agent logs to /mnt/sdcard/quantum_logs..."
@@ -410,6 +410,37 @@ EOF
     log_info "Enabling and starting the quantum-gnoi-agent service..."
     sudo systemctl enable quantum-gnoi-agent
     sudo systemctl start quantum-gnoi-agent
+
+	log_info "Generating NETCONF Systemd Configuration..."
+    cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
+[Unit]
+Description=Quantum SDN NETCONF Operations Agent
+After=network.target local-fs.target
+RequiresMountsFor=/mnt/sdcard
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/netconf_agent.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$PROJECT_DIR/logs/netconf_agent.log
+StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    log_info "Linking NETCONF service to /etc/systemd/system/..."
+    sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
+    sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/quantum-netconf-agent.service
+    
+    sudo systemctl daemon-reload
+    
+    log_info "Enabling and starting the quantum-netconf-agent service..."
+    sudo systemctl enable quantum-netconf-agent
+    sudo systemctl start quantum-netconf-agent
     
     log_success "Systemd service configured, enabled on boot, and currently running."    
 fi
