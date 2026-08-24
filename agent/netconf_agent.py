@@ -78,10 +78,11 @@ def process_rpc(channel, xml_data):
             logger.info("Received client <hello> capabilities.")
             return
 
-        # 1. Robust <get> matching via XPath local-name
+        # 1. Match <get> RPC using local-name() to ignore ncclient's dynamic namespaces
         if len(root.xpath('//*[local-name()="get"]')) > 0:
             logger.info("Executing <get> RPC to fetch hardware state.")
             
+            # Fetch state from driver (safely falls back to False if method is missing)
             current_state = getattr(netconf_hw, 'get_netconf_switch_state', lambda: False)()
             state_str = 'true' if current_state else 'false'
             
@@ -96,7 +97,7 @@ def process_rpc(channel, xml_data):
             channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
             return
 
-        # 2. Robust <set-netconf-switch> matching via XPath local-name
+        # 2. Match <set-netconf-switch> RPC using local-name()
         set_switch_nodes = root.xpath('//*[local-name()="set-netconf-switch"]')
         if len(set_switch_nodes) > 0:
             set_cc = set_switch_nodes[0]
@@ -113,7 +114,7 @@ def process_rpc(channel, xml_data):
             channel.send(reply.encode('utf-8') + NETCONF_DELIMITER)
             return
 
-        # 3. Default fallback response for unknown RPCs
+        # 3. Default fallback response
         reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
     <rpc-error>
         <error-type>application</error-type>
