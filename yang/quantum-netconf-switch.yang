@@ -1,0 +1,48 @@
+module quantum-netconf-switch {
+  namespace "urn:quantum:sdn:netconf-switch";
+  prefix "qns";
+
+  organization "Quantum Node Switching Research";
+  description "YANG data model for independent NETCONF hardware control.";
+
+  revision 2026-08-24 {
+    description "Initial revision for decoupled NETCONF agent.";
+  }
+
+  // --- Operational State & Configuration ---
+  container netconf-switch {
+    description "Top-level container for NETCONF switch configuration and status.";
+    
+    leaf switch-state {
+      type boolean;
+      description "Current state of the NETCONF hardware path. true = ENABLED / CONNECTED.";
+      config true;
+    }
+    
+    leaf switch-type {
+      type string;
+      config false;
+      description "Hardware type read from driver/netconf_pin_mappings.json.";
+    }
+  }
+
+  // --- Active RPCs ---
+  rpc set-netconf-switch {
+    description "Directly trigger a hardware state change for the NETCONF device.";
+    input {
+      leaf state {
+        type boolean;
+        mandatory true;
+        description "Target state for the switch. true = ENABLED.";
+      }
+    }
+    output {
+      leaf success {
+        type boolean;
+      }
+      leaf message {
+        type string;
+      }
+    }
+  }
+}
