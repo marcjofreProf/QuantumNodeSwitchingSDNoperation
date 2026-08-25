@@ -5,7 +5,7 @@ Project to develop the quantum node operation in SDN switching
 
 This repository contains the node-level execution agent and hardware-abstraction code for the **Quantum-SDN Switching Architecture**. It is designed to run on a BeagleBone Black (BBB) acting as the local controller for physical optical circuit switches.
 
-This project works in tandem with the central control plane repository: [QuantumSwitchingSDNarchitecture](https://github.com/marcjofreProf/QuantumSwitchingSDNarchitecture.git), which houses the µONOS, ETSI OSM, and Kubernetes deployments.
+This project works in tandem with the central control plane repository: [QuantumSwitchingSDNarchitecture](https://github.com/marcjofreProf/QuantumSwitchingSDNarchitecture.git), which houses the µONOS, ETSI OSM, and Kubernetes deployments; and the operations and service repository: [QuantumServiceOperationSDNarchitecture](https://github.com/marcjofreProf/QuantumServiceOperationSDNarchitecture.git), which supports operations and services for users.
 
 ## Architecture & Concept
 
