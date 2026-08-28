@@ -31,10 +31,11 @@ class NetconfHardwareDriver:
         }
 
     def _get_gpiod_line(self, pin_spec):
-        """Supports flat pin integers (BBB) and dict mappings (BB AI-64)."""
+        """Converts flat integer pins (BBB) or dict mappings (BB AI-64) to a libgpiod line object."""
         if isinstance(pin_spec, dict):
             chip = gpiod.Chip(pin_spec["chip"])
             return chip.get_line(pin_spec["line"])
+        
         chip_num = pin_spec // 32
         line_offset = pin_spec % 32
         chip = gpiod.Chip(f"gpiochip{chip_num}")
