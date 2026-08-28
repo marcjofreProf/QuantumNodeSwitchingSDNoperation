@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 NETCONF_DELIMITER = b"]]>]]>"
 netconf_hw = NetconfHardwareDriver()
 
+# Track the current hardware state locally since the driver does not store it
+current_netconf_state = False
+
 class NetconfServer(paramiko.ServerInterface):
     def check_channel_request(self, kind, chanid):
         if kind == 'session':
@@ -70,6 +73,8 @@ def handle_netconf_session(channel):
 
 def process_rpc(channel, xml_data):
     """Parses incoming RPCs and executes actions via the dedicated NETCONF driver."""
+    global current_netconf_state
+    
     try:
         root = etree.fromstring(xml_data)
         message_id = root.get('message-id', '1')
@@ -82,8 +87,7 @@ def process_rpc(channel, xml_data):
         if len(root.xpath('//*[local-name()="get"]')) > 0:
             logger.info("Executing <get> RPC to fetch hardware state.")
             
-            current_state = getattr(netconf_hw, 'get_netconf_switch_state', lambda: False)()
-            state_str = 'true' if current_state else 'false'
+            state_str = 'true' if current_netconf_state else 'false'
             
             reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
     <data>
@@ -105,6 +109,9 @@ def process_rpc(channel, xml_data):
             
             logger.info(f"Executing set-netconf-switch RPC with state: {state_val}")
             success = netconf_hw.set_netconf_switch_state(state_val)
+            
+            if success:
+                current_netconf_state = state_val
             
             reply = f"""<rpc-reply message-id="{message_id}" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
     <success>{'true' if success else 'false'}</success>
