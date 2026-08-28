@@ -1,0 +1,11 @@
+{
+  "switch_type": "Quantum_Optical_Switch",
+  "vendor": "Generic_BBB_Hardware",
+  "gpio_port_map": {
+    "port_A_in": 68,
+    "port_B_out": 69,
+    "strobe_pin": 44,
+    "enable_pin": 45
+  },
+  "logic_level": "TTL_3V3"
+}
