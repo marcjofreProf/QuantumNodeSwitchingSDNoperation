@@ -38,9 +38,6 @@ quantum_logs/
 # ==========================================
 # Quantum Node Auto-Generated Runtime Files
 # ==========================================
-driver/gnoi_pin_mappings.json
-driver/netconf_pin_mappings.json
-driver/pin_mappings.json
 systemd/quantum-gnoi-agent.service
 systemd/quantum-netconf-agent.service
 
