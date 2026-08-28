@@ -1,0 +1,11 @@
+{
+  "switch_type": "Quantum_Optical_Switch",
+  "vendor": "Generic_AI64_Hardware",
+  "gpio_port_map": {
+    "port_A_in": 450,
+    "port_B_out": 451,
+    "strobe_pin": 426,
+    "enable_pin": 427
+  },
+  "logic_level": "TTL_3V3"
+}
