@@ -1,11 +1,9 @@
 {
-  "switch_type": "Quantum_Optical_Switch",
-  "vendor": "Generic_AI64_Hardware",
+  "switch_type": "MEMS-Optical",
   "gpio_port_map": {
-    "port_A_in": 450,
-    "port_B_out": 451,
-    "strobe_pin": 426,
-    "enable_pin": 427
-  },
-  "logic_level": "TTL_3V3"
+    "port_A_in": { "chip": "gpiochip2", "line": 15 },
+    "port_B_out": { "chip": "gpiochip2", "line": 16 },
+    "strobe_pin": { "chip": "gpiochip2", "line": 17 },
+    "enable_pin": { "chip": "gpiochip2", "line": 18 }
+  }
 }
