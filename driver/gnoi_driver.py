@@ -49,10 +49,14 @@ class OpticalMatrixDriver:
         except Exception as e:
             self.logger.error(f"Hardware GPIO setup failed. Error: {e}")
 
-    def _get_gpiod_line(self, flat_pin):
-        """Converts a flat pin number to a libgpiod line object."""
-        chip_num = flat_pin // 32
-        line_offset = flat_pin % 32
+    def _get_gpiod_line(self, pin_spec):
+        """Converts flat integer pins (BBB) or dict mappings (BB AI-64) to a libgpiod line object."""
+        if isinstance(pin_spec, dict):
+            chip = gpiod.Chip(pin_spec["chip"])
+            return chip.get_line(pin_spec["line"])
+        
+        chip_num = pin_spec // 32
+        line_offset = pin_spec % 32
         chip = gpiod.Chip(f"gpiochip{chip_num}")
         return chip.get_line(line_offset)
 
