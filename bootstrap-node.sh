@@ -380,8 +380,9 @@ message StatusResponse {
 }
 EOF
 
-    log_info "Compiling gRPC Python stubs..."
-    touch proto/__init__.py
+    log_info "Compiling gRPC Python stubs and others..."
+    # Scaffold __init__.py files for all Python modules
+    touch proto/__init__.py driver/__init__.py test/__init__.py agent/__init__.py
     ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
     
     log_success "Directories, gNOI & NETCONF configurations, and Protobufs successfully created."
