@@ -323,34 +323,18 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
         mkdir -p logs
     fi
 
-    log_info "Generating default gNOI pin_mappings (driver/gnoi_pin_mappings.json)..."
-    cat <<EOF > driver/gnoi_pin_mappings.json
-{
-  "switch_type": "MEMS_Optical_Matrix",
-  "vendor": "Generic",
-  "gpio_port_map": {
-    "port_A_in": 68,
-    "port_B_out": 69,
-    "strobe_pin": 44
-  },
-  "logic_level": "TTL_3V3_to_5V_Isolated"
-}
-EOF
+    log_info "Linking hardware pin mappings for architecture: $ARCH..."
+    rm -f driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json driver/pin_mappings.json
 
-    log_info "Generating default NETCONF pin_mappings (driver/netconf_pin_mappings.json)..."
-    cat <<EOF > driver/netconf_pin_mappings.json
-{
-  "switch_type": "NETCONF_Variable_Optical_Attenuator",
-  "vendor": "Generic_NETCONF_Hardware",
-  "gpio_port_map": {
-    "enable_pin": 45
-  },
-  "logic_level": "TTL_3V3"
-}
-EOF
-
-    # Clean up legacy single pin mapping file if it exists
-    rm -f driver/pin_mappings.json
+    if [ "$ARCH" = "aarch64" ]; then
+        log_info "Linking BB-AI64 pin profile (driver/pin_switching_mappings.ai64.json)..."
+        ln -sfn pin_switching_mappings.ai64.json driver/gnoi_pin_mappings.json
+        ln -sfn pin_switching_mappings.ai64.json driver/netconf_pin_mappings.json
+    else
+        log_info "Linking BeagleBone Black pin profile (driver/pin_switching_mappings.bbb.json)..."
+        ln -sfn pin_switching_mappings.bbb.json driver/gnoi_pin_mappings.json
+        ln -sfn pin_switching_mappings.bbb.json driver/netconf_pin_mappings.json
+    fi
 
     log_info "Generating gNOI Protobuf definition (proto/quantum_gnoi_switching.proto)..."
     cat <<EOF > proto/quantum_gnoi_switching.proto
