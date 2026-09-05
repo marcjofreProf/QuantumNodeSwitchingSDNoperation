@@ -41,7 +41,7 @@ check_and_install() {
 
     if [ ${#missing_pkgs[@]} -ne 0 ]; then
         log_info "Installing missing packages: ${missing_pkgs[*]}"
-        sudo apt-get install -y "${missing_pkgs[@]}"
+        sudo apt-get install -y --fix-missing "${missing_pkgs[@]}" || log_warn "Some packages failed to install, attempting to proceed..."
     else
         log_success "All requested packages are already present!"
     fi
@@ -93,8 +93,8 @@ fi
 # --- Phase 0.7: PRE-EMPTIVE Deep System Cleanup ---
 if prompt_yes_no "Phase 0.7: Run pre-emptive deep cleanup to free up eMMC storage before downloads?"; then
     log_info "Purging unneeded packages and cleaning APT cache..."
-    sudo apt-get autoremove --purge -y
-    sudo apt-get clean
+    sudo apt-get autoremove --purge -y || true
+    sudo apt-get clean || true
 
     log_info "Vacuuming systemd journal logs to absolute minimum..."
     sudo journalctl --vacuum-time=1s 2>/dev/null || true
@@ -234,7 +234,7 @@ fi
 if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
     log_info "Updating APT package lists..."
     sudo rm -rf /var/lib/apt/lists/*
-    sudo apt-get update -y
+    sudo apt-get update -y || log_warn "APT update completed with repository errors (continuing script execution)..."
     
     if [ "$ARCH" = "aarch64" ]; then
         log_info "64-bit architecture (BB-AI64) detected. Installing standard Python 3 packages..."
@@ -251,7 +251,7 @@ if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
           libpython3.7-minimal=3.7.3-2+deb10u3 \
           libpython3.7=3.7.3-2+deb10u3 \
           python3.7-dev=3.7.3-2+deb10u3 \
-          libpython3.7-dev=3.7.3-2+deb10u3
+          libpython3.7-dev=3.7.3-2+deb10u3 || log_warn "Python 3.7 downgrade step encountered issues, continuing..."
     fi
 
 	# Packages for NETCONF and related
