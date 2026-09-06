@@ -1,11 +1,10 @@
 #!/bin/bash
-# ./bootstrap-node.sh
-# ---------------------------------------------------------------------------
-# Quantum Node Switching - Universal Bootstrap Script
-# (Features: Auto-detects BBB vs BB-AI64, Local Wheel Install, Log SD Offload)
+# ./bootstrap-node.sh - Smart Auto-Install & Flasher Prevention Script
 # ---------------------------------------------------------------------------
 
 set -e
+
+export DEBIAN_FRONTEND=noninteractive
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -20,8 +19,8 @@ log_error() { echo -e "${RED}[ERROR] $1${NC}"; }
 
 prompt_yes_no() {
     while true; do
-        echo -e -n "$1 [y/N]; "
-	read yn
+        echo -e -n "$1 [y/N]: "
+        read yn
         case $yn in
             [Yy]* ) return 0;;
             [Nn]* | "" ) return 1;;
@@ -30,21 +29,47 @@ prompt_yes_no() {
     done
 }
 
+# Auto-installs missing items silently; prompts user only if already installed.
+should_run_phase() {
+    local phase_name="$1"
+    local is_installed="$2" # 0 = installed/configured, 1 = missing/not configured
+
+    if [ "$is_installed" -eq 1 ]; then
+        log_info "$phase_name is missing/unconfigured. Auto-installing..."
+        return 0
+    else
+        log_warn "$phase_name is already installed and active."
+        if prompt_yes_no "Do you want to re-install / re-configure $phase_name?"; then
+            return 0
+        else
+            log_info "Skipping $phase_name."
+            return 1
+        fi
+    fi
+}
+
 check_and_install() {
     local missing_pkgs=()
+    local installed_pkgs=()
+
     for pkg in "$@"; do
         if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
-            echo -e "  -> [SKIP] $pkg is already installed."
+            installed_pkgs+=("$pkg")
         else
             missing_pkgs+=("$pkg")
         fi
     done
 
+    # If missing packages exist, install them automatically
     if [ ${#missing_pkgs[@]} -ne 0 ]; then
-        log_info "Installing missing packages: ${missing_pkgs[*]}"
-        sudo apt-get install -y --fix-missing "${missing_pkgs[@]}" || log_warn "Some packages failed to install, attempting to proceed..."
-    else
-        log_success "All requested packages are already present!"
+        log_info "Auto-installing missing packages: ${missing_pkgs[*]}"
+        sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" --fix-missing "${missing_pkgs[@]}" || log_warn "Some packages failed to install, attempting to proceed..."
+    fi
+
+    # If user specifically confirmed reinstalling already-present packages
+    if [ ${#installed_pkgs[@]} -ne 0 ] && [ "$FORCE_REINSTALL_PKGS" = "true" ]; then
+        log_info "Re-installing requested packages: ${installed_pkgs[*]}"
+        sudo apt-get install -y --reinstall "${installed_pkgs[@]}" || true
     fi
 }
 
@@ -54,17 +79,19 @@ ARCH=$(uname -m)
 log_info "Detected System Architecture: $ARCH"
 
 # --- Phase 0: Network Configuration ---
-if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallback to 10.0.0.1)?"; then
-    log_info "Checking if priority path is already operative..."
-    if ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
-        log_success "External connectivity verified."
-    else
-        log_warn "Ping check failed. Attempting fallback to 10.0.0.1..."
+NET_INSTALLED=1
+if ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
+    NET_INSTALLED=0
+fi
+
+if should_run_phase "Phase 0 (Network Connectivity)" "$NET_INSTALLED"; then
+    log_info "Configuring network interfaces and DNS..."
+    if ! ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
         if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
             sudo ip route add default via 10.0.0.1 || true
             log_success "Fallback default route via 10.0.0.1 added."
         else
-            log_error "Gateway 10.0.0.1 not reachable. You may lack internet."
+            log_error "Gateway 10.0.0.1 not reachable. Network connectivity may fail."
         fi
     fi
 
@@ -75,14 +102,17 @@ if prompt_yes_no "Phase 0: Verify internet connectivity (Prioritize MANO; Fallba
 fi
 
 # --- Phase 0.5: System Time Synchronization ---
-if prompt_yes_no "Phase 0.5: Synchronize system time (fixes SSL and APT certificate errors)?"; then
+TIME_INSTALLED=1
+if [ "$(date +%Y)" -ge 2024 ]; then
+    TIME_INSTALLED=0
+fi
+
+if should_run_phase "Phase 0.5 (System Time Synchronization)" "$TIME_INSTALLED"; then
     log_info "Enabling systemd network time protocol (NTP)..."
     sudo timedatectl set-ntp true 2>/dev/null || true
     sudo systemctl restart systemd-timesyncd 2>/dev/null || true
     
-    log_info "Attempting HTTP time sync fallback (bypasses SSL errors on old clocks)..."
     HTTP_DATE=$(curl -sI -m 5 http://google.com 2>/dev/null | grep -i "^date:" | sed 's/^[Dd]ate: //g' | tr -d '\r')
-    
     if [ -n "$HTTP_DATE" ]; then
         sudo date -s "$HTTP_DATE" >/dev/null
         log_success "Time synchronized successfully: $(date)"
@@ -92,159 +122,106 @@ if prompt_yes_no "Phase 0.5: Synchronize system time (fixes SSL and APT certific
 fi
 
 # --- Phase 0.7: PRE-EMPTIVE Deep System Cleanup ---
-if prompt_yes_no "Phase 0.7: Run pre-emptive deep cleanup to free up eMMC storage before downloads?"; then
-    log_info "Purging unneeded packages and cleaning APT cache..."
+CLEANUP_INSTALLED=1
+if [ -f /etc/dpkg/dpkg.cfg.d/01_nodoc ]; then
+    CLEANUP_INSTALLED=0
+fi
+
+if should_run_phase "Phase 0.7 (Deep System Cleanup)" "$CLEANUP_INSTALLED"; then
+    log_info "Purging unneeded packages and clearing cache..."
     sudo apt-get autoremove --purge -y || true
     sudo apt-get clean || true
-
-    log_info "Vacuuming systemd journal logs to absolute minimum..."
     sudo journalctl --vacuum-time=1s 2>/dev/null || true
     sudo journalctl --vacuum-size=2M 2>/dev/null || true
-
-    log_info "Clearing rotated log archives in /var/log..."
     sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete
-    
-    log_info "Truncating active text logs safely..."
     sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} + 2>/dev/null || true
 
-    # --- NEW: Deep OS Documentation and Locale Wipe (~150MB+ saved) ---
-    log_info "Wiping system documentation, manual pages, and unused language locales..."
-    sudo rm -rf /usr/share/doc/*
-    sudo rm -rf /usr/share/man/*
-    sudo rm -rf /usr/share/info/*
-    sudo rm -rf /usr/share/locale/*
-    sudo rm -rf /var/cache/man/*
+    sudo rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* /var/cache/man/*
 
-    log_info "Configuring dpkg to permanently drop docs and locales on future installs..."
-    if [ ! -f /etc/dpkg/dpkg.cfg.d/01_nodoc ]; then
-        cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc >/dev/null
+    cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc >/dev/null
 path-exclude /usr/share/doc/*
 path-exclude /usr/share/man/*
 path-exclude /usr/share/info/*
 path-exclude /usr/share/locale/*
 path-include /usr/share/locale/en*
 EOF
-
-        log_success "dpkg nodoc configuration created."
-    else
-        log_info "dpkg nodoc configuration already exists. Skipping creation."
-    fi
-    
-    log_info "Clearing temporary files and user caches..."
-    sudo rm -rf /tmp/* /var/tmp/*
-    rm -rf ~/.cache/*
-    sudo rm -rf /root/.cache/*
-    
-    log_success "Deep system cleanup complete. Maximum eMMC storage freed."
+    sudo rm -rf /tmp/* /var/tmp/* ~/.cache/* /root/.cache/*
+    log_success "Deep system cleanup complete."
 fi
 
-# --- Phase 0.8: PRE-EMPTIVE SD Card Setup for Logging & APT Cache ---
+# --- Phase 0.8: SD Card Setup & Flasher Removal ---
 if [ "$ARCH" = "aarch64" ]; then
-    log_info "Phase 0.8: BB-AI64 detected. SD Card setup is not required. Skipping..."
+    log_info "Phase 0.8: BB-AI64 detected. SD Card setup skipped."
 else
-    log_info "Phase 0.8: BBB detected. Routing APT Cache and logs to SD card to preserve eMMC..."
-    
-    if prompt_yes_no "Proceed with detecting, formatting, and mounting the SD card?"; then
-	# Find which drive hosts the active OS root filesystem
-	ROOT_MMC=$(findmnt -n -o SOURCE / | grep -o 'mmcblk[0-9]')
-	
-	# Dynamically target the other MMC device for the SD card
-	if [ "$ROOT_MMC" = "mmcblk0" ]; then
-	    SD_DISK="/dev/mmcblk1"
-	else
-	    SD_DISK="/dev/mmcblk0"
-	fi
+    SD_INSTALLED=1
+    if mountpoint -q /mnt/sdcard; then
+        SD_INSTALLED=0
+    fi
 
-        while [ ! -b "$SD_DISK" ]; do
-            echo -e "${RED}WARNING: No SD card detected at $SD_DISK.${NC}"
-            read -p "Please insert an SD card into the BBB and press Enter to scan again (or type 'skip' to bypass)... " sd_input
-            if [ "$sd_input" = "skip" ]; then
-                log_warn "Skipping SD card setup."
-                break
-            fi
-            sleep 2
-        done
-        
+    if should_run_phase "Phase 0.8 (SD Card Offloading)" "$SD_INSTALLED"; then
+        ROOT_MMC=$(findmnt -n -o SOURCE / | grep -o 'mmcblk[0-9]')
+        if [ "$ROOT_MMC" = "mmcblk0" ]; then
+            SD_DISK="/dev/mmcblk1"
+        else
+            SD_DISK="/dev/mmcblk0"
+        fi
+
         if [ -b "$SD_DISK" ]; then
-            log_info "Detected SD Card hardware at $SD_DISK."
-            
-            # --- NEW: Check if raw disk OR partition is used ---
-            if sudo blkid $SD_DISK | grep -q "ext4"; then
-                SD_TARGET="$SD_DISK"
-            else
-                SD_TARGET="${SD_DISK}p1"
-            fi
-            
-            if ! sudo blkid $SD_TARGET | grep -q "ext4"; then
-                log_warn "SD Card is NOT formatted as ext4."
-                if prompt_yes_no "${RED}WARNING: Do you want to format $SD_DISK to ext4? This will ERASE ALL DATA on the SD card!${NC}"; then
-                    log_info "Stopping active services to release the SD card..."
-                    sudo systemctl stop quantum-gnoi-agent 2>/dev/null || true
-                    if [ -L /var/cache/apt/archives ]; then
-                        sudo rm -f /var/cache/apt/archives
-                        sudo mkdir -p /var/cache/apt/archives/partial
-                    fi
-                    sudo umount /mnt/sdcard 2>/dev/null || true
-                    sudo umount -l ${SD_DISK}* 2>/dev/null || true
-                    
-                    log_info "Formatting $SD_DISK to ext4..."
-                    sudo parted -s $SD_DISK mklabel msdos
-                    sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
-                    sudo partprobe $SD_DISK
-                    sleep 2
-                    
-                    SD_TARGET="${SD_DISK}p1"
-                    sudo mkfs.ext4 -F $SD_TARGET
-                    log_success "SD Card successfully formatted."
-                else
-                    log_warn "Skipping format."
-                fi
-            else
-                log_success "SD Card $SD_TARGET is properly formatted as ext4. Skipping format!"
-            fi
+            log_info "Wiping all contents and eMMC flasher boot headers from $SD_DISK..."
+            sudo systemctl stop quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
+            sudo umount /mnt/sdcard 2>/dev/null || true
+            sudo umount -l ${SD_DISK}* 2>/dev/null || true
 
+            # Delete entire partition table and zero out legacy U-Boot flasher sectors
+            sudo dd if=/dev/zero of=$SD_DISK bs=1M count=10 status=none || true
+            
+            # Format clean ext4 partition
+            sudo parted -s $SD_DISK mklabel msdos
+            sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
+            sudo partprobe $SD_DISK
+            sleep 2
+
+            SD_TARGET="${SD_DISK}p1"
+            sudo mkfs.ext4 -F $SD_TARGET
+            
             sudo mkdir -p /mnt/sdcard
-            if ! mountpoint -q /mnt/sdcard; then
-                log_info "Mounting SD card to /mnt/sdcard..."
-                sudo mount $SD_TARGET /mnt/sdcard || log_error "Failed to mount $SD_TARGET."
-                if ! grep -q "$SD_TARGET /mnt/sdcard" /etc/fstab; then
-                    echo "$SD_TARGET /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
-                    log_success "Added SD card to /etc/fstab."
-                fi
-            else
-                log_success "SD card is already mounted at /mnt/sdcard."
+            sudo mount $SD_TARGET /mnt/sdcard
+            if ! grep -q "$SD_TARGET /mnt/sdcard" /etc/fstab; then
+                echo "$SD_TARGET /mnt/sdcard auto defaults,nofail 0 2" | sudo tee -a /etc/fstab
             fi
-            
-            log_info "Setting permissions for user $USER on SD card..."
-            sudo chown -R $USER:$USER /mnt/sdcard
 
-            # --- Offload APT Cache immediately before Phase 1 ---
-            log_info "Offloading APT package cache to SD card to save eMMC space..."
+            sudo chown -R $USER:$USER /mnt/sdcard
             sudo mkdir -p /mnt/sdcard/apt-cache/partial
             sudo chown -R _apt:root /mnt/sdcard/apt-cache
             sudo rm -rf /var/cache/apt/archives
             sudo ln -s /mnt/sdcard/apt-cache /var/cache/apt/archives
-            log_success "APT cache successfully linked to SD card."
+            log_success "SD Card wiped, formatted, mounted, and linked."
+        else
+            log_warn "No SD card hardware found at $SD_DISK."
         fi
-    else
-        log_warn "Skipping Phase 0.8. Everything will be kept on the internal eMMC."
     fi
 fi
 
-# --- Phase 1: System Updates & Architecture-Specific Fixes ---
-if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
-    log_info "Updating APT package lists..."
+# --- Phase 1: Base Tools & Package Setup ---
+PKG_CHECK_LIST=(build-essential git curl wget jq systemd python3-pip parted util-linux python3-ncclient python3-paramiko python3-lxml python3-cryptography)
+PHASE1_INSTALLED=0
+for p in "${PKG_CHECK_LIST[@]}"; do
+    if ! dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed"; then
+        PHASE1_INSTALLED=1
+        break
+    fi
+done
+
+FORCE_REINSTALL_PKGS="false"
+if should_run_phase "Phase 1 (Base System Packages)" "$PHASE1_INSTALLED"; then
+    [ "$PHASE1_INSTALLED" -eq 0 ] && FORCE_REINSTALL_PKGS="true"
     sudo rm -rf /var/lib/apt/lists/*
-    sudo apt-get update -y || log_warn "APT update completed with repository errors (continuing script execution)..."
-    
+    sudo apt-get update -y || log_warn "APT update warning..."
+
     if [ "$ARCH" = "aarch64" ]; then
-        log_info "64-bit architecture (BB-AI64) detected. Installing standard Python 3 packages..."
         check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
     else
-        log_info "32-bit architecture (BBB) detected. Installing base tools..."
         check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
-        
-        log_warn "Applying Debian Buster downgrade fix for BBB python3-dev..."
         sudo apt-get install -y --allow-downgrades \
           python3.7=3.7.3-2+deb10u3 \
           python3.7-minimal=3.7.3-2+deb10u3 \
@@ -252,33 +229,28 @@ if prompt_yes_no "Phase 1: Update system and install base dependencies?"; then
           libpython3.7-minimal=3.7.3-2+deb10u3 \
           libpython3.7=3.7.3-2+deb10u3 \
           python3.7-dev=3.7.3-2+deb10u3 \
-          libpython3.7-dev=3.7.3-2+deb10u3 || log_warn "Python 3.7 downgrade step encountered issues, continuing..."
+          libpython3.7-dev=3.7.3-2+deb10u3 || log_warn "Python 3.7 downgrade step warning..."
     fi
-
-	# Packages for NETCONF and related
-	check_and_install python3-ncclient python3-paramiko python3-lxml python3-cryptography
+    check_and_install python3-ncclient python3-paramiko python3-lxml python3-cryptography
 fi
 
-# --- Phase 2: gRPC, Protobuf, and VirtualEnv ---
-if prompt_yes_no "Phase 2: Install gRPC, Protobuf, and Python environment?"; then
-    log_info "Scanning and installing C++ dependencies..."
+# --- Phase 2: Python Environment & gRPC ---
+VENV_INSTALLED=1
+if [ -f "venv/bin/python3" ] && ./venv/bin/python3 -c "import grpc" 2>/dev/null; then
+    VENV_INSTALLED=0
+fi
+
+if should_run_phase "Phase 2 (Python Virtual Environment & gRPC)" "$VENV_INSTALLED"; then
     check_and_install golang-go protobuf-compiler
-
-    log_info "Ensuring virtualenv is installed via pip..."
     sudo pip3 install --default-timeout=1000 --no-cache-dir virtualenv
-
-    log_info "Setting up Python virtual environment (./venv)..."
     rm -rf venv
-    
+
     if mountpoint -q /mnt/sdcard; then
-        log_info "SD Card detected! Offloading Python virtual environment to /mnt/sdcard/venv..."
         mkdir -p /mnt/sdcard/venv
         sudo chown -R $USER:$USER /mnt/sdcard/venv
         virtualenv --system-site-packages /mnt/sdcard/venv
         ln -sfn /mnt/sdcard/venv venv
-        log_success "Virtual environment successfully linked to SD card."
     else
-        log_warn "No SD card mounted. Creating virtual environment locally on eMMC..."
         virtualenv --system-site-packages venv
     fi
 
@@ -286,36 +258,38 @@ if prompt_yes_no "Phase 2: Install gRPC, Protobuf, and Python environment?"; the
     pip install --upgrade pip
 
     if [ "$ARCH" != "aarch64" ]; then
-        log_info "BBB detected. Checking for local pre-compiled wheels in ./builds..."
         if ls ./builds/*.whl 1> /dev/null 2>&1; then
-            log_success "Found local pre-compiled wheels in ./builds! Installing directly..."
             pip install ./builds/*.whl
         else
-            log_warn "No local pre-compiled wheels found. Falling back to remote PiWheels..."
             pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
         fi
     else
-        log_info "BB-AI64 (aarch64) detected: Using standard binary wheels..."
         pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     fi
-    
     deactivate
-    log_success "gRPC and Python environment ready."
+    log_success "Python environment successfully created."
 fi
 
 # --- Phase 3: Hardware / GPIO Libraries ---
-if prompt_yes_no "Phase 3: Install GPIO control libraries (libgpiod)?"; then
-    log_info "Scanning and installing libgpiod..."
+GPIO_INSTALLED=1
+if dpkg-query -W -f='${Status}' "python3-libgpiod" 2>/dev/null | grep -q "ok installed"; then
+    GPIO_INSTALLED=0
+fi
+
+if should_run_phase "Phase 3 (GPIO Libraries)" "$GPIO_INSTALLED"; then
     check_and_install gpiod libgpiod-dev python3-libgpiod
 fi
 
-# --- Phase 4: Scaffold Repository Structure & Compile Protobufs ---
-if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?"; then
-    log_info "Creating node-level folder structure..."
+# --- Phase 4: Project Structure & Protobuf compilation ---
+PROTO_INSTALLED=1
+if [ -f "proto/quantum_gnoi_switching_pb2.py" ]; then
+    PROTO_INSTALLED=0
+fi
+
+if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLED"; then
     mkdir -p agent driver proto yang systemd test
-    
+
     if mountpoint -q /mnt/sdcard; then
-        log_success "SD Card found! Symlinking agent logs to /mnt/sdcard/quantum_logs..."
         mkdir -p /mnt/sdcard/quantum_logs
         rm -rf logs
         ln -sfn /mnt/sdcard/quantum_logs logs
@@ -324,71 +298,46 @@ if prompt_yes_no "Phase 4: Generate directory structure, configs, and Protobufs?
         mkdir -p logs
     fi
 
-    log_info "Linking hardware pin mappings for architecture: $ARCH..."
     rm -f driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json driver/pin_mappings.json
-
     if [ "$ARCH" = "aarch64" ]; then
-        log_info "Linking BB-AI64 pin profile (driver/pin_switching_mappings.ai64.json)..."
         ln -sfn pin_switching_mappings.ai64.json driver/gnoi_pin_mappings.json
         ln -sfn pin_switching_mappings.ai64.json driver/netconf_pin_mappings.json
     else
-        log_info "Linking BeagleBone Black pin profile (driver/pin_switching_mappings.bbb.json)..."
         ln -sfn pin_switching_mappings.bbb.json driver/gnoi_pin_mappings.json
         ln -sfn pin_switching_mappings.bbb.json driver/netconf_pin_mappings.json
     fi
 
-    log_info "Generating gNOI Protobuf definition (proto/quantum_gnoi_switching.proto)..."
     cat <<EOF > proto/quantum_gnoi_switching.proto
 syntax = "proto3";
-
 package quantum.gnoi.switching.v1;
-
 service QuantumGnoiSwitchingService {
   rpc SetCrossConnect (CrossConnectRequest) returns (CrossConnectResponse);
   rpc GetCrossConnectStatus (StatusRequest) returns (StatusResponse);
 }
-
-message CrossConnectRequest {
-  bool state = 1; // true = CONNECTED, false = DISCONNECTED
-}
-
-message CrossConnectResponse {
-  bool success = 1;
-  string message = 2;
-}
-
+message CrossConnectRequest { bool state = 1; }
+message CrossConnectResponse { bool success = 1; string message = 2; }
 message StatusRequest {}
-
-message StatusResponse {
-  bool is_connected = 1;
-  string switch_type = 2;
-}
+message StatusResponse { bool is_connected = 1; string switch_type = 2; }
 EOF
 
-    log_info "Compiling gRPC Python stubs and others..."
-    # Scaffold __init__.py files for all Python modules
     touch proto/__init__.py driver/__init__.py test/__init__.py agent/__init__.py
     ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
-    
-    log_success "Directories, gNOI & NETCONF configurations, and Protobufs successfully created."
+    log_success "Protobuf definitions compiled."
 fi
 
-# --- Phase 5: Systemd Service Scaffold ---
-if prompt_yes_no "Phase 5: Generate and install systemd services (quantum-gnoi-agent & quantum-netconf-agent)?"; then
-    log_info "Generating Systemd Service Configurations..."
-    
-    # Calculate the exact, absolute path of the project folder
+# --- Phase 5: Systemd Setup ---
+SVC_INSTALLED=1
+if systemctl is-active --quiet quantum-gnoi-agent 2>/dev/null; then
+    SVC_INSTALLED=0
+fi
+
+if should_run_phase "Phase 5 (Systemd Services Setup)" "$SVC_INSTALLED"; then
     PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    
-    # Dynamically check if SD card is mounted to avoid systemd mount dependency failures on eMMC-only setups
     REQUIRES_SD=""
     if mountpoint -q /mnt/sdcard; then
         REQUIRES_SD="RequiresMountsFor=/mnt/sdcard"
     fi
 
-    # -----------------------------------------------------------------------
-    # 1. gNOI Service Configuration
-    # -----------------------------------------------------------------------
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnoi-agent.service"
 [Unit]
 Description=Quantum SDN gNOI Operations Agent
@@ -409,9 +358,6 @@ StandardError=append:$PROJECT_DIR/logs/agent.log
 WantedBy=multi-user.target
 EOF
 
-    # -----------------------------------------------------------------------
-    # 2. NETCONF Service Configuration
-    # -----------------------------------------------------------------------
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
 [Unit]
 Description=Quantum SDN NETCONF Operations Agent
@@ -432,19 +378,13 @@ StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
 WantedBy=multi-user.target
 EOF
 
-    log_info "Copying systemd unit files to /etc/systemd/system/..."
     sudo rm -f /etc/systemd/system/quantum-gnoi-agent.service /etc/systemd/system/quantum-netconf-agent.service
-    sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/quantum-gnoi-agent.service
-    sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/quantum-netconf-agent.service
-    
-    log_info "Reloading systemd daemon..."
+    sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/
+    sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/
     sudo systemctl daemon-reload
-    
-    log_info "Enabling and starting quantum-gnoi-agent and quantum-netconf-agent services..."
     sudo systemctl enable quantum-gnoi-agent quantum-netconf-agent
     sudo systemctl restart quantum-gnoi-agent quantum-netconf-agent
-    
-    log_success "Systemd services configured, enabled on boot, and currently running."    
+    log_success "Systemd services active."
 fi
 
 echo -e "${GREEN}====================================================${NC}"
