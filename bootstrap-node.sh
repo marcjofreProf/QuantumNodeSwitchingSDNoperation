@@ -159,6 +159,9 @@ else
     fi
 
     if should_run_phase "Phase 0.8 (SD Card Offloading)" "$SD_INSTALLED"; then
+        # Ensure required partition tools exist before proceeding
+        check_and_install parted util-linux e2fsprogs
+
         ROOT_MMC=$(findmnt -n -o SOURCE / | grep -o 'mmcblk[0-9]')
         if [ "$ROOT_MMC" = "mmcblk0" ]; then
             SD_DISK="/dev/mmcblk1"
