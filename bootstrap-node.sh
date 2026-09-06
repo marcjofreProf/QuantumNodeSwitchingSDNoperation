@@ -1,4 +1,5 @@
 #!/bin/bash
+# ./bootstrap-node.sh
 # ---------------------------------------------------------------------------
 # Quantum Node Switching - Universal Bootstrap Script
 # (Features: Auto-detects BBB vs BB-AI64, Local Wheel Install, Log SD Offload)
