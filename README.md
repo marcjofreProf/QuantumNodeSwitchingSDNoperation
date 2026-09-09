@@ -76,7 +76,7 @@ A bootstrap script is provided to instantly configure a fresh BeagleBone Black w
 
 **1. Clone the repository on the BeagleBone Black**
 ```bash
-git clone [https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git](https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git)
+git clone https://github.com/marcjofreProf/QuantumNodeSwitchingSDNoperation.git
 cd QuantumNodeSwitchingSDNoperation
 ```
 
@@ -206,3 +206,4 @@ To stop the agent systemd service, unmount offloaded SD card storage, remove vir
 ```bash
 sudo chmod +x uninstall-bootstrap-node.sh
 ./uninstall-bootstrap-node.sh
+```
