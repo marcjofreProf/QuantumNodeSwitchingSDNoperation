@@ -206,7 +206,7 @@ else
 fi
 
 # --- Phase 1: Base Tools & Package Setup ---
-PKG_CHECK_LIST=(build-essential git curl wget jq systemd python3-pip parted util-linux python3-ncclient python3-paramiko python3-lxml python3-cryptography)
+PKG_CHECK_LIST=(build-essential git curl wget jq systemd python3-pip parted util-linux tcpdump python3-ncclient python3-paramiko python3-lxml python3-cryptography)
 PHASE1_INSTALLED=0
 for p in "${PKG_CHECK_LIST[@]}"; do
     if ! dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed"; then
@@ -222,9 +222,9 @@ if should_run_phase "Phase 1 (Base System Packages)" "$PHASE1_INSTALLED"; then
     sudo apt-get update -y || log_warn "APT update warning..."
 
     if [ "$ARCH" = "aarch64" ]; then
-        check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux
+        check_and_install build-essential git curl wget jq systemd python3-pip python3-dev parted util-linux tcpdump
     else
-        check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux
+        check_and_install build-essential git curl wget jq systemd python3-pip parted util-linux tcpdump
         sudo apt-get install -y --allow-downgrades \
           python3.7=3.7.3-2+deb10u3 \
           python3.7-minimal=3.7.3-2+deb10u3 \
