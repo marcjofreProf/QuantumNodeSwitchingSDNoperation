@@ -171,7 +171,7 @@ else
 
         if [ -b "$SD_DISK" ]; then
             log_info "Wiping all contents and eMMC flasher boot headers from $SD_DISK..."
-            sudo systemctl stop quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
+            sudo systemctl stop stop quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
             sudo umount /mnt/sdcard 2>/dev/null || true
             sudo umount -l ${SD_DISK}* 2>/dev/null || true
 
@@ -301,15 +301,18 @@ if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLE
         mkdir -p logs
     fi
 
-    rm -f driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json driver/pin_mappings.json
+    rm -f driver/gnmi_pin_mappings.json driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json
     if [ "$ARCH" = "aarch64" ]; then
+        ln -sfn pin_switching_mappings.ai64.json driver/gnmi_pin_mappings.json
         ln -sfn pin_switching_mappings.ai64.json driver/gnoi_pin_mappings.json
         ln -sfn pin_switching_mappings.ai64.json driver/netconf_pin_mappings.json
     else
+        ln -sfn pin_switching_mappings.bbb.json driver/gnmi_pin_mappings.json
         ln -sfn pin_switching_mappings.bbb.json driver/gnoi_pin_mappings.json
         ln -sfn pin_switching_mappings.bbb.json driver/netconf_pin_mappings.json
     fi
 
+    # 1. Keep original gNOI proto definition
     cat <<EOF > proto/quantum_gnoi_switching.proto
 syntax = "proto3";
 package quantum.gnoi.switching.v1;
@@ -323,14 +326,48 @@ message StatusRequest {}
 message StatusResponse { bool is_connected = 1; string switch_type = 2; }
 EOF
 
+    # 2. Add gNMI proto definition
+    cat <<EOF > proto/quantum_gnmi_switching.proto
+syntax = "proto3";
+package quantum.gnmi.switching.v1;
+
+service gNMI {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Set(SetRequest) returns (SetResponse);
+  rpc Subscribe(stream SubscribeRequest) returns (stream SubscribeResponse);
+}
+
+message PathElem { string name = 1; }
+message Path { repeated PathElem elem = 1; }
+message TypedValue {
+  oneof value {
+    string string_val = 1;
+    bool bool_val = 2;
+    int64 int_val = 3;
+    bytes json_ietf_val = 4;
+  }
+}
+message Update { Path path = 1; TypedValue val = 2; }
+message GetRequest { repeated Path path = 1; }
+message GetResponse { repeated Update notification = 1; }
+message SetRequest { repeated Path delete = 1; repeated Update replace = 2; repeated Update update = 3; }
+message SetResponse { repeated Update response = 1; }
+message SubscribeRequest {}
+message SubscribeResponse {}
+EOF
+
     touch proto/__init__.py driver/__init__.py test/__init__.py agent/__init__.py
+    
+    # Compile both protobuf files
     ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
+    ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnmi_switching.proto
+    
     log_success "Protobuf definitions compiled."
 fi
 
 # --- Phase 5: Systemd Setup ---
 SVC_INSTALLED=1
-if systemctl is-active --quiet quantum-gnoi-agent 2>/dev/null; then
+if systemctl is-active --quiet quantum-gnoi-agent && systemctl is-active --quiet quantum-gnmi-agent 2>/dev/null; then
     SVC_INSTALLED=0
 fi
 
@@ -341,6 +378,28 @@ if should_run_phase "Phase 5 (Systemd Services Setup)" "$SVC_INSTALLED"; then
         REQUIRES_SD="RequiresMountsFor=/mnt/sdcard"
     fi
 
+    # 1. Create gNMI Service Unit
+    cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnmi-agent.service"
+[Unit]
+Description=Quantum SDN gNMI Operations Agent
+After=network.target local-fs.target
+$REQUIRES_SD
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/gnmi_agent.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$PROJECT_DIR/logs/gnmi_agent.log
+StandardError=append:$PROJECT_DIR/logs/gnmi_agent.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # 2. Create gNOI Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnoi-agent.service"
 [Unit]
 Description=Quantum SDN gNOI Operations Agent
@@ -361,6 +420,7 @@ StandardError=append:$PROJECT_DIR/logs/agent.log
 WantedBy=multi-user.target
 EOF
 
+    # 3. Create NETCONF Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
 [Unit]
 Description=Quantum SDN NETCONF Operations Agent
@@ -381,12 +441,15 @@ StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
 WantedBy=multi-user.target
 EOF
 
-    sudo rm -f /etc/systemd/system/quantum-gnoi-agent.service /etc/systemd/system/quantum-netconf-agent.service
+    # Install, enable, and start all three services
+    sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service /etc/systemd/system/quantum-netconf-agent.service
+    sudo cp "$PROJECT_DIR/systemd/quantum-gnmi-agent.service" /etc/systemd/system/
     sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/
     sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/
+    
     sudo systemctl daemon-reload
-    sudo systemctl enable quantum-gnoi-agent quantum-netconf-agent
-    sudo systemctl restart quantum-gnoi-agent quantum-netconf-agent
+    sudo systemctl enable quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent
+    sudo systemctl restart quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent
     log_success "Systemd services active."
 fi
 
