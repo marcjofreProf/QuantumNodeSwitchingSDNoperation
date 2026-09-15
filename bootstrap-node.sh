@@ -312,7 +312,7 @@ if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLE
         ln -sfn pin_switching_mappings.bbb.json driver/netconf_pin_mappings.json
     fi
 
-    # 1. Keep original gNOI proto definition
+    # 1. gNOI proto definition
     cat <<EOF > proto/quantum_gnoi_switching.proto
 syntax = "proto3";
 package quantum.gnoi.switching.v1;
@@ -326,19 +326,20 @@ message StatusRequest {}
 message StatusResponse { bool is_connected = 1; string switch_type = 2; }
 EOF
 
-    # 2. Add gNMI proto definition
+    # 2. gNMI proto definition
     cat <<EOF > proto/quantum_gnmi_switching.proto
 syntax = "proto3";
-package quantum.gnmi.switching.v1;
+package gnmi;
 
 service gNMI {
+  rpc Capabilities(CapabilityRequest) returns (CapabilityResponse);
   rpc Get(GetRequest) returns (GetResponse);
   rpc Set(SetRequest) returns (SetResponse);
   rpc Subscribe(stream SubscribeRequest) returns (stream SubscribeResponse);
 }
 
 message PathElem { string name = 1; }
-message Path { repeated PathElem elem = 1; }
+message Path { repeated PathElem elem = 1; string target = 2; }
 message TypedValue {
   oneof value {
     string string_val = 1;
@@ -348,10 +349,22 @@ message TypedValue {
   }
 }
 message Update { Path path = 1; TypedValue val = 2; }
-message GetRequest { repeated Path path = 1; }
+message GetRequest { repeated Path path = 1; string type = 2; }
 message GetResponse { repeated Update notification = 1; }
-message SetRequest { repeated Path delete = 1; repeated Update replace = 2; repeated Update update = 3; }
+message SetRequest { 
+  Path prefix = 1; 
+  repeated Path delete = 2; 
+  repeated Update replace = 3; 
+  repeated Update update = 4; 
+}
 message SetResponse { repeated Update response = 1; }
+message CapabilityRequest {}
+message ModelData { string name = 1; string organization = 2; string version = 3; }
+message CapabilityResponse {
+  repeated ModelData supported_models = 1;
+  repeated string supported_encodings = 2;
+  string gNMI_version = 3;
+}
 message SubscribeRequest {}
 message SubscribeResponse {}
 EOF
