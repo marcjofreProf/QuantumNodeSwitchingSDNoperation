@@ -433,7 +433,11 @@ StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
 WantedBy=multi-user.target
 EOF
 
-    # Install, enable, and start all three services
+    # Stop and purge legacy unit files
+    sudo systemctl stop quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
+    sudo systemctl disable quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
+
     # Copy and enable new unified services
     sudo cp "$PROJECT_DIR/systemd/quantum-grpc-agent.service" /etc/systemd/system/
     sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/
@@ -446,5 +450,7 @@ fi
 
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Bootstrap Execution Complete! ${NC}"
-echo -e "To tail live agent logs: ${YELLOW}tail -f logs/agent.log${NC}"
+echo -e "To tail live gRPC agent logs:    ${YELLOW}tail -f logs/grpc_agent.log${NC}"
+echo -e "To tail live NETCONF agent logs: ${YELLOW}tail -f logs/netconf_agent.log${NC}"
+echo -e "To tail all live logs together:  ${YELLOW}tail -f logs/*.log${NC}"
 echo -e "${GREEN}====================================================${NC}"
