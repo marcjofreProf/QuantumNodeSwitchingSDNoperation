@@ -38,26 +38,23 @@ if ! prompt_yes_no "Proceed with stopping node services and cleaning runtime env
 fi
 
 # --- Phase 1: Systemd Service Cleanup ---
-if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-gnmi-agent, quantum-gnoi-agent, quantum-netconf-agent)?"; then
+if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-grpc-agent, quantum-netconf-agent)?"; then
     log_info "Stopping and disabling agent services..."
-    sudo systemctl stop quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
-    sudo systemctl disable quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
+    sudo systemctl stop quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
+    sudo systemctl disable quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
 
-    # Clean up gNMI service
-    if [ -L "/etc/systemd/system/quantum-gnmi-agent.service" ] || [ -f "/etc/systemd/system/quantum-gnmi-agent.service" ]; then
-        log_info "Removing gNMI systemd service symlink..."
-        sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service
+    # Clean up gRPC service
+    if [ -L "/etc/systemd/system/quantum-grpc-agent.service" ] || [ -f "/etc/systemd/system/quantum-grpc-agent.service" ]; then
+        log_info "Removing unified gRPC systemd service..."
+        sudo rm -f /etc/systemd/system/quantum-grpc-agent.service
     fi
 
-    # Clean up gNOI service
-    if [ -L "/etc/systemd/system/quantum-gnoi-agent.service" ] || [ -f "/etc/systemd/system/quantum-gnoi-agent.service" ]; then
-        log_info "Removing gNOI systemd service symlink..."
-        sudo rm -f /etc/systemd/system/quantum-gnoi-agent.service
-    fi
+    # Clean up legacy gNMI / gNOI services if present
+    sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
 
     # Clean up NETCONF service
     if [ -L "/etc/systemd/system/quantum-netconf-agent.service" ] || [ -f "/etc/systemd/system/quantum-netconf-agent.service" ]; then
-        log_info "Removing NETCONF systemd service symlink..."
+        log_info "Removing NETCONF systemd service..."
         sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
     fi
 
