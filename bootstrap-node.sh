@@ -171,7 +171,7 @@ else
 
         if [ -b "$SD_DISK" ]; then
             log_info "Wiping all contents and eMMC flasher boot headers from $SD_DISK..."
-            sudo systemctl stop stop quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent 2>/dev/null || true
+            sudo systemctl stop quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
             sudo umount /mnt/sdcard 2>/dev/null || true
             sudo umount -l ${SD_DISK}* 2>/dev/null || true
 
@@ -380,7 +380,7 @@ fi
 
 # --- Phase 5: Systemd Setup ---
 SVC_INSTALLED=1
-if systemctl is-active --quiet quantum-gnoi-agent && systemctl is-active --quiet quantum-gnmi-agent 2>/dev/null; then
+if systemctl is-active --quiet quantum-grpc-agent && systemctl is-active --quiet quantum-netconf-agent 2>/dev/null; then
     SVC_INSTALLED=0
 fi
 
