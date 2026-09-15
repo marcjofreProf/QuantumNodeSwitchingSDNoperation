@@ -11,7 +11,7 @@ This project works in tandem with the central control plane repository: [Quantum
 
 To achieve dynamic quantum path provisioning without control-plane bottlenecks, this node agent features a **dual-protocol architecture**, supporting both high-speed operations and standard interoperability:
 
-1. **Fast-Path gNOI (gRPC Network Operations Interface):** Bypasses legacy protocols to communicate directly with the µONOS SDN controller. It receives binary-serialized Protocol Buffers (Protobufs) representing operational state changes with near-zero software latency.
+1. **Fast-Path gNMI and gNOI (gRPC Network Operations Interface):** Bypasses legacy protocols to communicate directly with the µONOS SDN controller. It receives binary-serialized Protocol Buffers (Protobufs) representing operational state changes with near-zero software latency.
 2. **Standard NETCONF/YANG:** Hosts a parallel standard SSH/XML server utilizing YANG data models, ensuring full interoperability with traditional SDN orchestrators (like ETSI OSM or OpenDaylight).
 3. **Node Processing (BBB):** The lightweight agents on the BeagleBone Black translate incoming network commands (from either gNOI or NETCONF) into TTL logic levels via the device's GPIO pins.
 4. **Physical Switching:** An opto-decoupled interface safely steps the TTL signals to drive high-speed MEMS or solid-state optical matrix switches.
@@ -129,9 +129,9 @@ sudo ./venv/bin/python3 ./test/test_manual_switching_hardware.py
 
 ---
 
-## Running the gNOI Agent
+## Running the gRPC Agent
 
-The gNOI Agent (`agent/gnoi_agent.py`) is the brain of the node. It hosts a gRPC server (default port `50051`) that listens for network commands from the SDN orchestrator and translates them into physical hardware actions via the driver.
+The gNOI and gNMI Agent (`agent/gnoi_gnmi_agent.py`) is the brain of the node. It hosts a gRPC server (default port `50051`) that listens for network commands from the SDN orchestrator and translates them into physical hardware actions via the driver.
 
 ### Automatic Execution (Recommended)
 
@@ -140,16 +140,16 @@ During the execution of `bootstrap-node.sh`, a Systemd service is automatically 
 To manage the service, use standard `systemctl` commands:
 
 ```bash
-sudo systemctl status quantum-gnoi-agent
-sudo systemctl start quantum-gnoi-agent
-sudo systemctl restart quantum-gnoi-agent
-sudo systemctl stop quantum-gnoi-agent
+sudo systemctl status quantum-grpc-agent
+sudo systemctl start quantum-grpc-agent
+sudo systemctl restart quantum-grpc-agent
+sudo systemctl stop quantum-grpc-agent
 ```
 
 To view live network and hardware logs:
 
 ```bash
-sudo journalctl -u quantum-gnoi-agent -f
+sudo journalctl -u quantum-grpc-agent -f
 ```
 
 ### Manual Execution (For Debugging)
@@ -157,17 +157,12 @@ sudo journalctl -u quantum-gnoi-agent -f
 If you need to run the agent interactively to debug gRPC connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
 
 ```bash
-sudo ./venv/bin/python3 agent/gnoi_agent.py
+sudo ./venv/bin/python3 agent/gnoi_gnmi_agent.py
 ```
-
-Manual Execution (For Debugging)
-If you need to run the agent interactively to debug gRPC connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
-
-sudo ./venv/bin/python3 agent/gnoi_agent.py
 
 ## Running the NETCONF Agent
 
-Alongside gNOI, the node also hosts a standard NETCONF server (`agent/netconf_agent.py`) that allows traditional SDN controllers to configure the switch using standard YANG models over SSH (default port `830`).
+Alongside gRPC, the node also hosts a standard NETCONF server (`agent/netconf_agent.py`) that allows traditional SDN controllers to configure the switch using standard YANG models over SSH (default port `830`).
 
 ### Automatic Execution
 
@@ -191,15 +186,10 @@ sudo journalctl -u quantum-netconf-agent -f
 If you need to run the agent interactively to debug NETCONF connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
 
 ```bash
-sudo ./venv/bin/python3 agent/gnoi_agent.py
+sudo ./venv/bin/python3 agent/netconf_agent.py
 ```
 
-Manual Execution (For Debugging)
-If you need to run the agent interactively to debug NETCONF connectivity, ensure the Systemd service is stopped, then execute the script using the virtual environment:
-
-sudo ./venv/bin/python3 agent/netconf_agent.py
-
-## Teardown & System Cleanup
+# Teardown & System Cleanup
 
 To stop the agent systemd service, unmount offloaded SD card storage, remove virtual environments, and clean untracked files from the node workspace, run the uninstall script:
 
