@@ -391,10 +391,10 @@ if should_run_phase "Phase 5 (Systemd Services Setup)" "$SVC_INSTALLED"; then
         REQUIRES_SD="RequiresMountsFor=/mnt/sdcard"
     fi
 
-    # 1. Create gNMI Service Unit
-    cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnmi-agent.service"
+    # 1. Create Unified gRPC (gNMI + gNOI) Service Unit
+    cat <<EOF > "$PROJECT_DIR/systemd/quantum-grpc-agent.service"
 [Unit]
-Description=Quantum SDN gNMI Operations Agent
+Description=Quantum SDN Unified gNMI/gNOI Operations Agent
 After=network.target local-fs.target
 $REQUIRES_SD
 
@@ -402,38 +402,17 @@ $REQUIRES_SD
 Type=simple
 User=$USER
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/gnmi_agent.py
+ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/gnoi_gnmi_agent.py
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:$PROJECT_DIR/logs/gnmi_agent.log
-StandardError=append:$PROJECT_DIR/logs/gnmi_agent.log
+StandardOutput=append:$PROJECT_DIR/logs/grpc_agent.log
+StandardError=append:$PROJECT_DIR/logs/grpc_agent.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # 2. Create gNOI Service Unit
-    cat <<EOF > "$PROJECT_DIR/systemd/quantum-gnoi-agent.service"
-[Unit]
-Description=Quantum SDN gNOI Operations Agent
-After=network.target local-fs.target
-$REQUIRES_SD
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/gnoi_agent.py
-Restart=on-failure
-RestartSec=5
-StandardOutput=append:$PROJECT_DIR/logs/agent.log
-StandardError=append:$PROJECT_DIR/logs/agent.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # 3. Create NETCONF Service Unit
+    # 2. NETCONF Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
 [Unit]
 Description=Quantum SDN NETCONF Operations Agent
@@ -455,14 +434,13 @@ WantedBy=multi-user.target
 EOF
 
     # Install, enable, and start all three services
-    sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service /etc/systemd/system/quantum-netconf-agent.service
-    sudo cp "$PROJECT_DIR/systemd/quantum-gnmi-agent.service" /etc/systemd/system/
-    sudo cp "$PROJECT_DIR/systemd/quantum-gnoi-agent.service" /etc/systemd/system/
+    # Copy and enable new unified services
+    sudo cp "$PROJECT_DIR/systemd/quantum-grpc-agent.service" /etc/systemd/system/
     sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/
     
     sudo systemctl daemon-reload
-    sudo systemctl enable quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent
-    sudo systemctl restart quantum-gnmi-agent quantum-gnoi-agent quantum-netconf-agent
+    sudo systemctl enable quantum-grpc-agent quantum-netconf-agent
+    sudo systemctl restart quantum-grpc-agent quantum-netconf-agent
     log_success "Systemd services active."
 fi
 
