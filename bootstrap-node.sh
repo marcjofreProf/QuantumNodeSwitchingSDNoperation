@@ -92,7 +92,7 @@ echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 ARCH=$(uname -m)
 log_info "Detected System Architecture: $ARCH"
 
-# Globals used by Phase 0 (IP MANO) and applied persistently at the end.
+# Globals used by Phase 0 and applied persistently in Phase 6.
 DEVICE_IP=""
 CONTROLLER_IP=""
 PRIMARY_IF=""
@@ -103,8 +103,10 @@ IFACE_CONF="/etc/network/interfaces.d/quantum-node"
 # ---------------------------------------------------------------------------
 # --- Phase 0: IP MANO / Network Configuration ---
 # ---------------------------------------------------------------------------
+# "Installed" means the MANO config file exists, NOT that we can reach
+# the internet via DHCP. Internet reachability alone is not a reliable signal.
 NET_INSTALLED=1
-if ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
+if [ -f "$IFACE_CONF" ]; then
     NET_INSTALLED=0
 fi
 
@@ -114,8 +116,10 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
     # --- Detect primary network interface ---
     PRIMARY_IF=$(ip -o -4 route show to default 2>/dev/null | awk '{print $5}' | head -n1)
     if [ -z "$PRIMARY_IF" ]; then
-        PRIMARY_IF=$(ip -o link show 2>/dev/null | awk -F': ' '$2 != "lo" && $2 !~ /^(docker|veth|br-)/ {print $2; exit}')
+        PRIMARY_IF=$(ip -o link show 2>/dev/null | awk -F': ' \
+            '$2 != "lo" && $2 !~ /^(docker|veth|br-)/ {print $2; exit}')
     fi
+
     if [ -z "$PRIMARY_IF" ]; then
         log_error "Could not auto-detect a primary network interface. Aborting Phase 0."
     else
@@ -143,8 +147,7 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
 
         NET_CONFIG_PENDING="true"
 
-        # --- Keep the CURRENT session working for apt ---
-        # Fallback route (only if we still cannot reach the internet)
+        # --- Keep the CURRENT session working for apt (session-only) ---
         if ! ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
             if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
                 sudo ip route add default via 10.0.0.1 || true
@@ -154,7 +157,6 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
             fi
         fi
 
-        # Temporary public DNS just for the install (Controller DNS applied at reboot)
         if ! grep -q "8.8.8.8" /etc/resolv.conf 2>/dev/null; then
             echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
             log_success "Temporary public DNS written to /etc/resolv.conf (session only)."
@@ -201,7 +203,7 @@ if should_run_phase "Phase 0.7 (Deep System Cleanup)" "$CLEANUP_INSTALLED"; then
     sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete
     sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} + 2>/dev/null || true
 
-    # NOTE: /usr/share/man is intentionally NOT removed.
+    # NOTE: /usr/share/man and /var/cache/man are intentionally NOT removed.
     sudo rm -rf /usr/share/doc/* /usr/share/info/* /usr/share/locale/*
 
     cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc >/dev/null
@@ -257,14 +259,13 @@ else
             sudo mount $SD_TARGET /mnt/sdcard
 
             # --- Resilient fstab entry ---
-            # _netdev      : wait for device subsystem, not the network stack
-            # nofail       : do not block boot if SD is absent/slow
+            # _netdev       : wait for device subsystem, not the network stack
+            # nofail        : do not block boot if SD is absent
             # device-timeout: cap the wait so boot never hangs on the SD
             FSTAB_LINE="$SD_TARGET /mnt/sdcard auto defaults,nofail,_netdev,x-systemd.device-timeout=10 0 2"
             if ! grep -q "$SD_TARGET /mnt/sdcard" /etc/fstab; then
                 echo "$FSTAB_LINE" | sudo tee -a /etc/fstab
             else
-                # Replace existing entry with the hardened one
                 sudo sed -i "\|$SD_TARGET /mnt/sdcard|d" /etc/fstab
                 echo "$FSTAB_LINE" | sudo tee -a /etc/fstab
             fi
@@ -396,6 +397,7 @@ if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLE
         ln -sfn pin_switching_mappings.bbb.json driver/netconf_pin_mappings.json
     fi
 
+    # 1. gNOI proto definition
     cat <<EOF > proto/quantum_gnoi_switching.proto
 syntax = "proto3";
 package quantum.gnoi.switching.v1;
@@ -409,6 +411,7 @@ message StatusRequest {}
 message StatusResponse { bool is_connected = 1; string switch_type = 2; }
 EOF
 
+    # 2. gNMI proto definition
     cat <<EOF > proto/quantum_gnmi_switching.proto
 syntax = "proto3";
 package gnmi;
@@ -474,6 +477,7 @@ if should_run_phase "Phase 5 (Systemd Services Setup)" "$SVC_INSTALLED"; then
         REQUIRES_SD="RequiresMountsFor=/mnt/sdcard"
     fi
 
+    # 1. Unified gRPC (gNMI + gNOI) Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-grpc-agent.service"
 [Unit]
 Description=Quantum SDN Unified gNMI/gNOI Operations Agent
@@ -495,6 +499,7 @@ StandardError=append:$PROJECT_DIR/logs/grpc_agent.log
 WantedBy=multi-user.target
 EOF
 
+    # 2. NETCONF Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
 [Unit]
 Description=Quantum SDN NETCONF Operations Agent
@@ -516,10 +521,12 @@ StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
 WantedBy=multi-user.target
 EOF
 
+    # Stop and purge legacy unit files
     sudo systemctl stop quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
     sudo systemctl disable quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
     sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
 
+    # Copy and enable new unified services
     sudo cp "$PROJECT_DIR/systemd/quantum-grpc-agent.service" /etc/systemd/system/
     sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/
 
@@ -537,9 +544,9 @@ if [ "$NET_CONFIG_PENDING" = "true" ] && [ -n "$PRIMARY_IF" ]; then
 
     sudo mkdir -p /etc/network/interfaces.d
 
-    # Make sure interfaces.d is sourced by the main interfaces file
-    if ! grep -q "source /etc/network/interfaces.d" /etc/network/interfaces 2>/dev/null; then
-        echo "source /etc/network/interfaces.d/*" | sudo tee -a /etc/network/interfaces > /dev/null
+    # Match both "source" and "source-directory" forms to avoid adding a duplicate
+    if ! grep -qE '^source(-directory)?[[:space:]]+/etc/network/interfaces\.d' /etc/network/interfaces 2>/dev/null; then
+        echo "source-directory /etc/network/interfaces.d" | sudo tee -a /etc/network/interfaces > /dev/null
     fi
 
     sudo tee "$IFACE_CONF" > /dev/null <<EOF
