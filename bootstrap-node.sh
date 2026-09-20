@@ -126,8 +126,8 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
         log_info "Primary network interface detected: $PRIMARY_IF"
 
         # --- Ask user for MANO IPs ---
-        DEVICE_IP=$(prompt_with_default "Enter the IP address for THIS device (node)" "10.0.0.254")
-        CONTROLLER_IP=$(prompt_with_default "Enter the IP address of the Network Controller" "10.0.0.2")
+        DEVICE_IP=$(prompt_with_default "Enter the IP address for THIS device (node)" "172.21.128.254")
+        CONTROLLER_IP=$(prompt_with_default "Enter the IP address of the Network Controller" "172.21.2.23")
         log_info "Device IP: $DEVICE_IP   |   Controller IP: $CONTROLLER_IP"
 
         # --- Random, persistent, locally-administered unicast MAC ---
