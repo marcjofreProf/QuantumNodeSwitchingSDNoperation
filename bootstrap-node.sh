@@ -33,8 +33,8 @@ prompt_with_default() {
     local prompt_text="$1"
     local default_value="$2"
     local input_value=""
-    echo -e -n "${CYAN}${prompt_text}${NC} [${default_value}]: "
-    read input_value || true
+    echo -e -n "${CYAN}${prompt_text}${NC} [${default_value}]: " >&2
+    read -r input_value || true
     if [ -z "$input_value" ]; then
         echo "$default_value"
     else
