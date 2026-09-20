@@ -127,8 +127,9 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
 
         # --- Ask user for MANO IPs ---
         DEVICE_IP=$(prompt_with_default "Enter the IP address for THIS device (node)" "172.21.128.254")
+        GATEWAY_IP=$(prompt_with_default "Enter the LAN gateway IP for the node subnet" "172.21.128.1")
         CONTROLLER_IP=$(prompt_with_default "Enter the IP address of the Network Controller" "172.21.2.23")
-        log_info "Device IP: $DEVICE_IP   |   Controller IP: $CONTROLLER_IP"
+        log_info "Device IP: $DEVICE_IP   |   Gateway: $GATEWAY_IP   |   Controller: $CONTROLLER_IP"
 
         # --- Random, persistent, locally-administered unicast MAC ---
         RANDOM_MAC=""
@@ -552,14 +553,17 @@ if [ "$NET_CONFIG_PENDING" = "true" ] && [ -n "$PRIMARY_IF" ]; then
 
     sudo tee "$IFACE_CONF" > /dev/null <<EOF
 # Quantum Node Switching - managed by bootstrap-node.sh
-# Node IP : $DEVICE_IP   |   Controller IP : $CONTROLLER_IP
+# Node: $DEVICE_IP   Gateway: $GATEWAY_IP   Controller: $CONTROLLER_IP
 auto $PRIMARY_IF
 iface $PRIMARY_IF inet static
     address $DEVICE_IP
     netmask 255.255.255.0
-    gateway $CONTROLLER_IP
+    gateway $GATEWAY_IP
     hwaddress ether $RANDOM_MAC
     dns-nameservers $CONTROLLER_IP 8.8.8.8 1.1.1.1
+    # Controller lives on a different subnet; reach it via the LAN gateway.
+    up   ip route add $CONTROLLER_IP/32 via $GATEWAY_IP || true
+    down ip route del $CONTROLLER_IP/32 via $GATEWAY_IP || true
 EOF
     log_success "Persistent interface config written."
 
