@@ -99,16 +99,41 @@ fi
 # Reverses bootstrap Phase 6 (persistent MANO network config).
 # The source-directory line is only removed if the bootstrap was the one
 # that added it, tracked via a marker file.
+# Also removes the live /32 host route to the controller, which the
+# interface's `down` hook would normally have handled but will not fire
+# because we delete the file while the interface stays up.
 # ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, resolv.conf)?"; then
+if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, host route, resolv.conf)?"; then
     IFACE_CONF="/etc/network/interfaces.d/quantum-node"
     SRC_MARKER="/etc/network/.quantum_managed_source_line"
 
     if [ -f "$IFACE_CONF" ]; then
         log_info "Removing persistent interface config $IFACE_CONF..."
-        # Report what we are removing so the operator knows what was set
-        grep -E "^\s*(address|gateway|hwaddress|dns-nameservers)" "$IFACE_CONF" 2>/dev/null | sed 's/^/    /'
+        # Show what was configured, including any host-route hooks
+        grep -E "^[[:space:]]*(address|gateway|hwaddress|dns-nameservers|up[[:space:]]|down[[:space:]])" \
+            "$IFACE_CONF" 2>/dev/null | sed 's/^/    /'
+
+        # Capture the controller host route from the `up` hook BEFORE deleting
+        # the file, so we can remove it from the live routing table too.
+        CONTROLLER_HOST_ROUTE=$(grep -E "^[[:space:]]*up[[:space:]]+ip route add" "$IFACE_CONF" 2>/dev/null \
+            | sed -E 's/.*ip route add ([0-9./]+) via ([0-9.]+).*/\1 \2/' \
+            | head -n1)
+
         sudo rm -f "$IFACE_CONF"
+
+        # Drop the live host route, since the `down` hook is never called when
+        # the config file is removed without bringing the interface down.
+        if [ -n "$CONTROLLER_HOST_ROUTE" ]; then
+            route_target=$(echo "$CONTROLLER_HOST_ROUTE" | awk '{print $1}')
+            route_via=$(echo "$CONTROLLER_HOST_ROUTE"   | awk '{print $2}')
+            if [ -n "$route_target" ] && [ -n "$route_via" ] && \
+               ip route show "$route_target" 2>/dev/null | grep -q "via $route_via"; then
+                log_info "Removing live host route $route_target via $route_via..."
+                sudo ip route del "$route_target" via "$route_via" || true
+            else
+                log_info "Live host route to controller not present (already gone)."
+            fi
+        fi
     else
         log_info "No $IFACE_CONF present."
     fi
@@ -144,7 +169,6 @@ fi
 # ---------------------------------------------------------------------------
 if prompt_yes_no "Phase 5: Remove fallback default route (10.0.0.1) if active?"; then
     if ip route show | grep -q "default via 10.0.0.1"; then
-        # Count total default routes active on the system
         total_default_routes=$(ip route show | grep -c "^default")
 
         if [ "$total_default_routes" -gt 1 ]; then
@@ -219,8 +243,6 @@ if prompt_yes_no "Phase 8: Unmount SD card and remove its fstab entry?"; then
     else
         log_info "/mnt/sdcard is not mounted."
     fi
-
-    # NOTE: no daemon-reload here — Phase 1 already removed the units.
 fi
 
 # ---------------------------------------------------------------------------
