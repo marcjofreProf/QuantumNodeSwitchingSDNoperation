@@ -50,6 +50,7 @@ if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-grpc-agent,
         sudo rm -f /etc/systemd/system/quantum-grpc-agent.service
     fi
 
+    # Clean up legacy gNMI / gNOI services if present
     sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
 
     if [ -L "/etc/systemd/system/quantum-netconf-agent.service" ] || [ -f "/etc/systemd/system/quantum-netconf-agent.service" ]; then
@@ -94,8 +95,8 @@ if prompt_yes_no "Phase 3: Clean compiled gRPC stubs and log symlinks (preserves
 fi
 
 # ---------------------------------------------------------------------------
-# --- Phase 4 (NEW): Network Configuration Teardown ---
-# Reverses bootstrap Phase 0 (IP MANO) and Phase 6 (persistent network config)
+# --- Phase 4: Network Configuration Teardown ---
+# Reverses bootstrap Phase 6 (persistent MANO network config).
 # ---------------------------------------------------------------------------
 if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, resolv.conf)?"; then
     IFACE_CONF="/etc/network/interfaces.d/quantum-node"
@@ -110,10 +111,12 @@ if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, resol
     fi
 
     # Remove the source line we added, but only if interfaces.d is now empty
-    if [ -f /etc/network/interfaces ] && grep -q "source /etc/network/interfaces.d" /etc/network/interfaces; then
+    # (matches both "source" and "source-directory" forms)
+    if [ -f /etc/network/interfaces ] && \
+       grep -qE '^source(-directory)?[[:space:]]+/etc/network/interfaces\.d' /etc/network/interfaces; then
         if [ -z "$(ls -A /etc/network/interfaces.d 2>/dev/null)" ]; then
             log_info "interfaces.d is empty; removing the source line we added..."
-            sudo sed -i '/^source \/etc\/network\/interfaces\.d/d' /etc/network/interfaces
+            sudo sed -i -E '/^source(-directory)?[[:space:]]+\/etc\/network\/interfaces\.d/d' /etc/network/interfaces
         else
             log_warn "interfaces.d still contains other files; leaving source line in place."
         fi
@@ -136,6 +139,7 @@ fi
 # ---------------------------------------------------------------------------
 if prompt_yes_no "Phase 5: Remove fallback default route (10.0.0.1) if active?"; then
     if ip route show | grep -q "default via 10.0.0.1"; then
+        # Count total default routes active on the system
         total_default_routes=$(ip route show | grep -c "^default")
 
         if [ "$total_default_routes" -gt 1 ]; then
@@ -181,52 +185,48 @@ if prompt_yes_no "Phase 7: Restore APT cache to internal eMMC (Crucial if removi
 fi
 
 # ---------------------------------------------------------------------------
-# --- Phase 8 (NEW): SD Card Unmount & fstab Cleanup ---
-# Reverses bootstrap Phase 0.8. This is the fix for the intermittent
-# "connectivity lost after reboot with SD attached" behaviour, because
-# a stale fstab entry pointing at a missing/slow SD can hold up boot.
+# --- Phase 8: SD Card Unmount & fstab Cleanup ---
+# Reverses bootstrap Phase 0.8. Fixes the "connectivity lost after reboot
+# with SD attached" symptom by removing the fstab entry that can stall boot.
 # ---------------------------------------------------------------------------
 if prompt_yes_no "Phase 8: Unmount SD card and remove its fstab entry?"; then
-    # Remove any fstab line referencing /mnt/sdcard
+    # 1) Remove fstab entry FIRST so nothing tries to remount the SD later
     if grep -q "/mnt/sdcard" /etc/fstab; then
         log_info "Removing /mnt/sdcard entry from /etc/fstab..."
-        sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
+        sudo cp /etc/fstab "/etc/fstab.bak.$(date +%s)"
         sudo sed -i '\|\s/mnt/sdcard\s|d' /etc/fstab
         log_success "fstab cleaned (backup saved as /etc/fstab.bak.*)."
     else
         log_info "No /mnt/sdcard entry in /etc/fstab."
     fi
 
-    # Unmount if mounted
+    # 2) Clean bootstrap-created directories BEFORE unmounting
+    if mountpoint -q /mnt/sdcard; then
+        log_info "Removing bootstrap-created directories on SD card..."
+        sudo rm -rf /mnt/sdcard/quantum_logs /mnt/sdcard/apt-cache
+    fi
+
+    # 3) Unmount LAST
     if mountpoint -q /mnt/sdcard; then
         log_info "Unmounting /mnt/sdcard..."
-        sudo systemctl stop quantum-grpc-agent quantum-netconf-agent 2>/dev/null || true
         sudo umount /mnt/sdcard 2>/dev/null || sudo umount -l /mnt/sdcard 2>/dev/null || true
         log_success "/mnt/sdcard unmounted."
     else
         log_info "/mnt/sdcard is not mounted."
     fi
 
-    # Clean up the on-SD directories we created (only if still mounted, in
-    # case the operator wants to inspect them first; if unmounted we skip).
-    if mountpoint -q /mnt/sdcard; then
-        log_info "Removing bootstrap-created directories on SD card..."
-        sudo rm -rf /mnt/sdcard/quantum_logs /mnt/sdcard/apt-cache
-        log_success "SD card directories removed."
-    fi
-
-    sudo systemctl daemon-reload
+    # NOTE: no daemon-reload here — Phase 1 already removed the units.
 fi
 
 # ---------------------------------------------------------------------------
-# --- Phase 9 (NEW): Remove dpkg doc/locale exclusions ---
+# --- Phase 9: Remove dpkg doc/locale exclusions ---
 # Reverses bootstrap Phase 0.7 so future installs get docs back.
 # ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 9: Remove dpkg no-doc / no-locale exclusions (restore man pages on next install)?"; then
+if prompt_yes_no "Phase 9: Remove dpkg no-doc / no-locale exclusions (restore docs on next install)?"; then
     if [ -f /etc/dpkg/dpkg.cfg.d/01_nodoc ]; then
         log_info "Removing /etc/dpkg/dpkg.cfg.d/01_nodoc..."
         sudo rm -f /etc/dpkg/dpkg.cfg.d/01_nodoc
-        log_success "dpkg exclusions removed. Re-installing existing packages will now restore their docs."
+        log_success "dpkg exclusions removed. Re-installing existing packages will restore their docs."
     else
         log_info "No /etc/dpkg/dpkg.cfg.d/01_nodoc present. Skipping."
     fi
@@ -237,7 +237,7 @@ echo -e "${GREEN} Teardown Complete! Repository files preserved. ${NC}"
 echo -e "${GREEN}====================================================${NC}"
 
 # ---------------------------------------------------------------------------
-# --- Phase 10 (NEW): Reboot to apply network/fstab changes ---
+# --- Phase 10: Reboot to apply network/fstab changes ---
 # ---------------------------------------------------------------------------
 log_warn "Network and fstab changes only take effect after a reboot."
 if prompt_yes_no "Reboot now to apply the teardown changes?"; then
