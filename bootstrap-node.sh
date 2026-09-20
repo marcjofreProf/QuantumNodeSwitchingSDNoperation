@@ -29,7 +29,6 @@ prompt_yes_no() {
     done
 }
 
-# Prompt the user for a value, falling back to a default if input is empty.
 prompt_with_default() {
     local prompt_text="$1"
     local default_value="$2"
@@ -44,9 +43,8 @@ prompt_with_default() {
 }
 
 # Phase gate:
-#   - Component MISSING/unconfigured -> run immediately, NO prompt.
-#   - Component ALREADY installed    -> ask the user whether to re-install.
-# Returns 0 to run the phase, 1 to skip it.
+#   - MISSING/unconfigured -> run immediately, NO prompt.
+#   - ALREADY installed    -> ask the user whether to re-install.
 should_run_phase() {
     local phase_name="$1"
     local is_installed="$2" # 0 = installed/configured, 1 = missing/not configured
@@ -99,12 +97,14 @@ PRIMARY_IF=""
 RANDOM_MAC=""
 NET_CONFIG_PENDING="false"
 IFACE_CONF="/etc/network/interfaces.d/quantum-node"
+SRC_MARKER="/etc/network/.quantum_managed_source_line"
 
 # ---------------------------------------------------------------------------
 # --- Phase 0: IP MANO / Network Configuration ---
 # ---------------------------------------------------------------------------
-# "Installed" means the MANO config file exists, NOT that we can reach
-# the internet via DHCP. Internet reachability alone is not a reliable signal.
+# "Installed" means the MANO config file exists, NOT that we can ping 8.8.8.8.
+# Reaching the internet via DHCP on a factory BBB is NOT a signal that the
+# MANO configuration has been applied.
 NET_INSTALLED=1
 if [ -f "$IFACE_CONF" ]; then
     NET_INSTALLED=0
@@ -147,7 +147,7 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
 
         NET_CONFIG_PENDING="true"
 
-        # --- Keep the CURRENT session working for apt (session-only) ---
+        # --- Session-only fallback so apt still works during this run ---
         if ! ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
             if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
                 sudo ip route add default via 10.0.0.1 || true
@@ -155,11 +155,11 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
             else
                 log_warn "Gateway 10.0.0.1 not reachable; will rely on existing link."
             fi
-        fi
 
-        if ! grep -q "8.8.8.8" /etc/resolv.conf 2>/dev/null; then
-            echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
-            log_success "Temporary public DNS written to /etc/resolv.conf (session only)."
+            if ! grep -q "8.8.8.8" /etc/resolv.conf 2>/dev/null; then
+                echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
+                log_success "Temporary public DNS written to /etc/resolv.conf (session only)."
+            fi
         fi
     fi
 fi
@@ -259,9 +259,9 @@ else
             sudo mount $SD_TARGET /mnt/sdcard
 
             # --- Resilient fstab entry ---
-            # _netdev       : wait for device subsystem, not the network stack
-            # nofail        : do not block boot if SD is absent
-            # device-timeout: cap the wait so boot never hangs on the SD
+            # _netdev        : wait for device subsystem, not the network stack
+            # nofail         : do not block boot if SD is absent
+            # device-timeout : cap the wait so boot never hangs on the SD
             FSTAB_LINE="$SD_TARGET /mnt/sdcard auto defaults,nofail,_netdev,x-systemd.device-timeout=10 0 2"
             if ! grep -q "$SD_TARGET /mnt/sdcard" /etc/fstab; then
                 echo "$FSTAB_LINE" | sudo tee -a /etc/fstab
@@ -521,12 +521,10 @@ StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
 WantedBy=multi-user.target
 EOF
 
-    # Stop and purge legacy unit files
     sudo systemctl stop quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
     sudo systemctl disable quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
     sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
 
-    # Copy and enable new unified services
     sudo cp "$PROJECT_DIR/systemd/quantum-grpc-agent.service" /etc/systemd/system/
     sudo cp "$PROJECT_DIR/systemd/quantum-netconf-agent.service" /etc/systemd/system/
 
@@ -544,9 +542,12 @@ if [ "$NET_CONFIG_PENDING" = "true" ] && [ -n "$PRIMARY_IF" ]; then
 
     sudo mkdir -p /etc/network/interfaces.d
 
-    # Match both "source" and "source-directory" forms to avoid adding a duplicate
+    # Add source-directory line only if not already present. Marker file lets
+    # the uninstaller know we were the one that added it.
     if ! grep -qE '^source(-directory)?[[:space:]]+/etc/network/interfaces\.d' /etc/network/interfaces 2>/dev/null; then
         echo "source-directory /etc/network/interfaces.d" | sudo tee -a /etc/network/interfaces > /dev/null
+        sudo touch "$SRC_MARKER"
+        log_info "Added source-directory line (marker $SRC_MARKER set for later cleanup)."
     fi
 
     sudo tee "$IFACE_CONF" > /dev/null <<EOF
@@ -573,8 +574,8 @@ options timeout:1 attempts:1
 EOF
     log_success "Persistent /etc/resolv.conf written (controller + public fallback)."
 
-    # No iptables rules are required; the static route via the controller
-    # handles northbound traffic.
+    # No iptables rules are required; the static default route via the
+    # controller handles northbound traffic.
 fi
 
 echo -e "${GREEN}====================================================${NC}"
