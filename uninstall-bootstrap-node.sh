@@ -97,9 +97,12 @@ fi
 # ---------------------------------------------------------------------------
 # --- Phase 4: Network Configuration Teardown ---
 # Reverses bootstrap Phase 6 (persistent MANO network config).
+# The source-directory line is only removed if the bootstrap was the one
+# that added it, tracked via a marker file.
 # ---------------------------------------------------------------------------
 if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, resolv.conf)?"; then
     IFACE_CONF="/etc/network/interfaces.d/quantum-node"
+    SRC_MARKER="/etc/network/.quantum_managed_source_line"
 
     if [ -f "$IFACE_CONF" ]; then
         log_info "Removing persistent interface config $IFACE_CONF..."
@@ -110,16 +113,18 @@ if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, resol
         log_info "No $IFACE_CONF present."
     fi
 
-    # Remove the source line we added, but only if interfaces.d is now empty
-    # (matches both "source" and "source-directory" forms)
-    if [ -f /etc/network/interfaces ] && \
-       grep -qE '^source(-directory)?[[:space:]]+/etc/network/interfaces\.d' /etc/network/interfaces; then
+    # Only remove the source-directory line if bootstrap was the one that
+    # added it (marker present) AND interfaces.d is now empty.
+    if [ -f "$SRC_MARKER" ]; then
         if [ -z "$(ls -A /etc/network/interfaces.d 2>/dev/null)" ]; then
-            log_info "interfaces.d is empty; removing the source line we added..."
+            log_info "interfaces.d is empty and marker present; removing source line we added..."
             sudo sed -i -E '/^source(-directory)?[[:space:]]+\/etc\/network\/interfaces\.d/d' /etc/network/interfaces
         else
             log_warn "interfaces.d still contains other files; leaving source line in place."
         fi
+        sudo rm -f "$SRC_MARKER"
+    else
+        log_info "Source-directory line was not added by bootstrap; leaving /etc/network/interfaces untouched."
     fi
 
     # Restore resolv.conf to plain public DNS (the controller DNS is gone)
