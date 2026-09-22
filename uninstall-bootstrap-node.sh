@@ -58,6 +58,14 @@ if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-grpc-agent,
         sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
     fi
 
+    # Remove the SD-wait guard installed by the bootstrap.
+    if [ -f "/etc/systemd/system/wait-sdcard.service" ]; then
+        log_info "Removing wait-sdcard systemd service..."
+        sudo systemctl stop    wait-sdcard.service 2>/dev/null || true
+        sudo systemctl disable wait-sdcard.service 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/wait-sdcard.service
+    fi
+
     sudo systemctl daemon-reload
     sudo systemctl reset-failed
     log_success "Systemd services removed."
@@ -91,6 +99,12 @@ if prompt_yes_no "Phase 3: Clean compiled gRPC stubs and log symlinks (preserves
         log_info "Removing logs symlink..."
         rm -f logs
     fi
+
+    if [ -d "/mnt/sdcard/quantum_logs" ]; then
+        log_info "Removing offloaded SD card logs (/mnt/sdcard/quantum_logs)..."
+        sudo rm -rf /mnt/sdcard/quantum_logs
+    fi
+
     log_success "Compiled stubs and temporary log symlink removed."
 fi
 
@@ -257,6 +271,13 @@ if prompt_yes_no "Phase 9: Remove dpkg no-doc / no-locale exclusions (restore do
     else
         log_info "No /etc/dpkg/dpkg.cfg.d/01_nodoc present. Skipping."
     fi
+
+    # Clear pip caches that the bootstrap's Phase 0.7 excluded. These are
+    # user-level caches, so no sudo needed for the user's own.
+    log_info "Clearing pip caches..."
+    rm -rf "$HOME/.cache/pip" 2>/dev/null || true
+    sudo rm -rf /root/.cache/pip 2>/dev/null || true
+    log_success "pip caches cleared."
 fi
 
 echo -e "${GREEN}====================================================${NC}"
