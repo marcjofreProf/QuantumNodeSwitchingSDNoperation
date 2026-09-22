@@ -87,6 +87,28 @@ check_and_install() {
 
 echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 
+# ---------------------------------------------------------------------------
+# Precondition: SD card MUST be mounted at /mnt/sdcard.
+#
+# The BeagleBone's eMMC is small and easily filled by the venv and apt cache.
+# To preserve eMMC we offload everything regenerable to the SD. That makes
+# the SD a hard dependency: the agents cannot run without it. Refuse to
+# proceed if it isn't mounted, so we never leave the node in a
+# half-offloaded state.
+# ---------------------------------------------------------------------------
+if ! mountpoint -q /mnt/sdcard; then
+    log_error "SD card is not mounted at /mnt/sdcard."
+    log_error "Insert the SD card, ensure it is formatted, and mount it before running this bootstrap."
+    exit 1
+fi
+
+if ! sudo touch /mnt/sdcard/.write_test 2>/dev/null; then
+    log_error "Cannot write to /mnt/sdcard. Check permissions and filesystem health."
+    exit 1
+fi
+sudo rm -f /mnt/sdcard/.write_test
+log_success "SD card is mounted and writable at /mnt/sdcard."
+
 ARCH=$(uname -m)
 log_info "Detected System Architecture: $ARCH"
 
@@ -214,6 +236,8 @@ path-exclude /usr/share/locale/*
 path-include /usr/share/locale/en*
 EOF
     sudo rm -rf /tmp/* /var/tmp/* ~/.cache/* /root/.cache/*
+    # pip caches can grow to hundreds of MB on eMMC
+    rm -rf ~/.cache/pip /root/.cache/pip 2>/dev/null || true
     log_success "Deep system cleanup complete (man pages preserved)."
 fi
 
@@ -274,8 +298,14 @@ else
             sudo chown -R $USER:$USER /mnt/sdcard
             sudo mkdir -p /mnt/sdcard/apt-cache/partial
             sudo chown -R _apt:root /mnt/sdcard/apt-cache
-            sudo rm -rf /var/cache/apt/archives
-            sudo ln -s /mnt/sdcard/apt-cache /var/cache/apt/archives
+
+            # Idempotent: only replace the local dir if it isn't already the
+            # expected symlink.
+            if [ ! -L /var/cache/apt/archives ] || \
+               [ "$(readlink /var/cache/apt/archives)" != "/mnt/sdcard/apt-cache" ]; then
+                sudo rm -rf /var/cache/apt/archives
+                sudo ln -s /mnt/sdcard/apt-cache /var/cache/apt/archives
+            fi
             log_success "SD Card wiped, formatted, mounted, and linked."
         else
             log_warn "No SD card hardware found at $SD_DISK."
@@ -328,16 +358,23 @@ fi
 if should_run_phase "Phase 2 (Python Virtual Environment & gRPC)" "$VENV_INSTALLED"; then
     check_and_install golang-go protobuf-compiler
     sudo pip3 install --default-timeout=1000 --no-cache-dir virtualenv
-    rm -rf venv
 
-    # Always create the venv on the local filesystem. Putting it on the SD
-    # card makes the node unable to run its agents when the SD is absent,
-    # which is a realistic scenario (SD removed, SD failed, node booted with
-    # a different SD). The node must be self-sufficient without the SD.
-    rm -rf venv
-    virtualenv --system-site-packages venv
+    # The venv is the largest regenerable artifact on the node (200-400 MB
+    # after grpcio/grpcio-tools/protobuf). Put it on the SD and symlink
+    # venv/ locally so that scripts referring to $PROJECT_DIR/venv keep
+    # working. The SD precondition at the top of this script guarantees the
+    # mount exists, and wait-sdcard.service (Phase 5) guarantees it is
+    # mounted before the agents start.
+    SD_VENV_DIR="/mnt/sdcard/venv"
 
-    source venv/bin/activate
+    rm -rf venv "$SD_VENV_DIR"
+    mkdir -p "$SD_VENV_DIR"
+    sudo chown -R "$USER:$USER" "$SD_VENV_DIR"
+
+    virtualenv --system-site-packages "$SD_VENV_DIR"
+    ln -sfn "$SD_VENV_DIR" venv
+
+    source "$SD_VENV_DIR/bin/activate"
     pip install --upgrade pip
 
     if [ "$ARCH" != "aarch64" ]; then
@@ -350,7 +387,7 @@ if should_run_phase "Phase 2 (Python Virtual Environment & gRPC)" "$VENV_INSTALL
         pip install --default-timeout=1000 --no-cache-dir --extra-index-url https://www.piwheels.org/simple grpcio grpcio-tools protobuf
     fi
     deactivate
-    log_success "Python environment successfully created."
+    log_success "Python environment created on SD card (symlinked as venv/)."
 fi
 
 # ---------------------------------------------------------------------------
@@ -376,20 +413,13 @@ fi
 if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLED"; then
     mkdir -p agent driver proto yang systemd test
 
-    # Always ensure a real logs/ directory exists locally. If the SD is
-    # mounted, we additionally create the SD target and make logs/ a symlink
-    # to it. If not, we leave logs/ as a regular directory.
-    #
-    # The unit files use StandardOutput=journal (see Phase 5), so the agent
-    # does not depend on logs/ existing. But we create it anyway so that any
-    # scripts that tail logs/*.log keep working.
-    mkdir -p logs
-
-    if mountpoint -q /mnt/sdcard; then
-        mkdir -p /mnt/sdcard/quantum_logs
-        rm -rf logs
-        ln -sfn /mnt/sdcard/quantum_logs logs
-    fi
+    # Logs go on the SD too. The unit files use StandardOutput=journal
+    # (see Phase 5), so logs/ is only for scripts that tail logs/*.log
+    # directly. The directory itself lives on SD to save eMMC.
+    mkdir -p /mnt/sdcard/quantum_logs
+    sudo chown -R "$USER:$USER" /mnt/sdcard/quantum_logs
+    rm -rf logs
+    ln -sfn /mnt/sdcard/quantum_logs logs
 
     rm -f driver/gnmi_pin_mappings.json driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json
     if [ "$ARCH" = "aarch64" ]; then
@@ -478,20 +508,38 @@ fi
 if should_run_phase "Phase 5 (Systemd Services Setup)" "$SVC_INSTALLED"; then
     PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-    # Do NOT require the SD card mount. The agent writes its logs to
-    # $PROJECT_DIR/logs, which is a symlink to /mnt/sdcard/quantum_logs when
-    # the SD is present and a regular directory otherwise. Requiring the
-    # mount would prevent the agent from starting on a bare node or after the
-    # SD is removed. Journald and the local filesystem are sufficient.
-    REQUIRES_SD=""
+    # -----------------------------------------------------------------
+    # wait-sdcard.service: block the agents until /mnt/sdcard is mounted.
+    #
+    # The venv and logs live on the SD. Without this guard, systemd will
+    # try to exec $PROJECT_DIR/venv/bin/python3 before the SD is mounted
+    # and the agents will fail with 203/EXEC. This oneshot unit waits up
+    # to 60 seconds for the mount to appear, then exits 0 or 1.
+    # -----------------------------------------------------------------
+    cat <<EOF | sudo tee /etc/systemd/system/wait-sdcard.service >/dev/null
+[Unit]
+Description=Wait for /mnt/sdcard to be mounted
+Before=quantum-grpc-agent.service quantum-netconf-agent.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for i in \$(seq 1 60); do mountpoint -q /mnt/sdcard && exit 0; sleep 1; done; echo "SD card did not mount within 60s" >&2; exit 1'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    sudo systemctl daemon-reload
+    sudo systemctl enable wait-sdcard.service
 
     # 1. Unified gRPC (gNMI + gNOI) Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-grpc-agent.service"
 [Unit]
 Description=Quantum SDN Unified gNMI/gNOI Operations Agent
-After=network-online.target local-fs.target
+After=network-online.target local-fs.target wait-sdcard.service
 Wants=network-online.target
-$REQUIRES_SD
+Requires=wait-sdcard.service
 
 [Service]
 Type=simple
@@ -511,9 +559,9 @@ EOF
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-netconf-agent.service"
 [Unit]
 Description=Quantum SDN NETCONF Operations Agent
-After=network-online.target local-fs.target
+After=network-online.target local-fs.target wait-sdcard.service
 Wants=network-online.target
-$REQUIRES_SD
+Requires=wait-sdcard.service
 
 [Service]
 Type=simple
@@ -591,9 +639,9 @@ fi
 
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Bootstrap Execution Complete! ${NC}"
-echo -e "To tail live gRPC agent logs:    ${YELLOW}tail -f logs/grpc_agent.log${NC}"
-echo -e "To tail live NETCONF agent logs: ${YELLOW}tail -f logs/netconf_agent.log${NC}"
-echo -e "To tail all live logs together:  ${YELLOW}tail -f logs/*.log${NC}"
+echo -e "To tail live gRPC agent logs:    ${YELLOW}journalctl -u quantum-grpc-agent -f${NC}"
+echo -e "To tail live NETCONF agent logs: ${YELLOW}journalctl -u quantum-netconf-agent -f${NC}"
+echo -e "To tail all live logs together:  ${YELLOW}journalctl -u quantum-grpc-agent -u quantum-netconf-agent -f${NC}"
 echo -e "${GREEN}====================================================${NC}"
 
 # ---------------------------------------------------------------------------
