@@ -483,11 +483,13 @@ EOF
 
     # Standard OpenConfig gNMI protos, pinned to the same v0.9.1 revision the
     # controller side uses. gnmi.proto imports gnmi_ext.proto via the
-    # Go-style path "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto",
-    # which Python resolves as the package chain github → com → openconfig →
-    # gnmi → proto → gnmi_ext. So the SOURCE file must live at
-    # proto/github/com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto — a
-    # literal "github.com" directory would be unimportable (dot in name).
+    # Go-style path "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto".
+    # Python resolves that as a package chain: github → com → openconfig →
+    # gnmi → proto → gnmi_ext. So the SOURCE .proto must live at
+    # proto/github/com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto.
+    #
+    # Note: NOT "github.com" with a dot. A directory named "github.com" is
+    # unimportable from Python because dots split module names.
     EXT_DIR="proto/github/com/openconfig/gnmi/proto/gnmi_ext"
     mkdir -p "$EXT_DIR"
 
@@ -500,9 +502,9 @@ EOF
             -o "$EXT_DIR/gnmi_ext.proto"
     fi
 
-    # Compile with -Iproto. Because the input path already lives under
-    # proto/github/com/.../gnmi_ext/, protoc will emit the generated stubs
-    # to the same nested location, which is what Python expects.
+    # Compile with -Iproto so that gnmi.proto's import of
+    # "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto" resolves to
+    # proto/github/com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto.
     ./venv/bin/python3 -m grpc_tools.protoc \
         -Iproto \
         --python_out=proto \
@@ -518,7 +520,7 @@ EOF
         mkdir -p "proto/$d"
         touch "proto/$d/__init__.py"
     done
-    
+
     log_success "Protobuf definitions compiled."
 fi
 
