@@ -330,14 +330,12 @@ if should_run_phase "Phase 2 (Python Virtual Environment & gRPC)" "$VENV_INSTALL
     sudo pip3 install --default-timeout=1000 --no-cache-dir virtualenv
     rm -rf venv
 
-    if mountpoint -q /mnt/sdcard; then
-        mkdir -p /mnt/sdcard/venv
-        sudo chown -R $USER:$USER /mnt/sdcard/venv
-        virtualenv --system-site-packages /mnt/sdcard/venv
-        ln -sfn /mnt/sdcard/venv venv
-    else
-        virtualenv --system-site-packages venv
-    fi
+    # Always create the venv on the local filesystem. Putting it on the SD
+    # card makes the node unable to run its agents when the SD is absent,
+    # which is a realistic scenario (SD removed, SD failed, node booted with
+    # a different SD). The node must be self-sufficient without the SD.
+    rm -rf venv
+    virtualenv --system-site-packages venv
 
     source venv/bin/activate
     pip install --upgrade pip
