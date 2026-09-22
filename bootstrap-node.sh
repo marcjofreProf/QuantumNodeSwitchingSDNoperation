@@ -473,10 +473,13 @@ fi
 
 if should_run_phase "Phase 5 (Systemd Services Setup)" "$SVC_INSTALLED"; then
     PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+    # Do NOT require the SD card mount. The agent writes its logs to
+    # $PROJECT_DIR/logs, which is a symlink to /mnt/sdcard/quantum_logs when
+    # the SD is present and a regular directory otherwise. Requiring the
+    # mount would prevent the agent from starting on a bare node or after the
+    # SD is removed. Journald and the local filesystem are sufficient.
     REQUIRES_SD=""
-    if mountpoint -q /mnt/sdcard; then
-        REQUIRES_SD="RequiresMountsFor=/mnt/sdcard"
-    fi
 
     # 1. Unified gRPC (gNMI + gNOI) Service Unit
     cat <<EOF > "$PROJECT_DIR/systemd/quantum-grpc-agent.service"
