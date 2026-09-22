@@ -2,6 +2,10 @@
 # ---------------------------------------------------------------------------
 # Quantum Node Switching - Safe Teardown & Uninstall Script
 # Reverses node bootstrap changes without deleting repository source code
+#
+# Matches bootstrap-node.sh "Design B": venv on local eMMC, logs and
+# apt-cache opportunistically on the SD. Safe to run whether or not the
+# SD card is mounted.
 # ---------------------------------------------------------------------------
 
 set +e # Do not exit on individual errors
@@ -58,9 +62,10 @@ if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-grpc-agent,
         sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
     fi
 
-    # Remove the SD-wait guard installed by the bootstrap.
+    # Remove the SD-wait guard if present. Design B does not install it, but
+    # a previous Design A install may have left it behind.
     if [ -f "/etc/systemd/system/wait-sdcard.service" ]; then
-        log_info "Removing wait-sdcard systemd service..."
+        log_info "Removing leftover wait-sdcard systemd service..."
         sudo systemctl stop    wait-sdcard.service 2>/dev/null || true
         sudo systemctl disable wait-sdcard.service 2>/dev/null || true
         sudo rm -f /etc/systemd/system/wait-sdcard.service
@@ -243,10 +248,23 @@ if prompt_yes_no "Phase 8: Unmount SD card and remove its fstab entry?"; then
         log_info "No /mnt/sdcard entry in /etc/fstab."
     fi
 
-    # 2) Clean bootstrap-created directories BEFORE unmounting
+    # 2) Clean bootstrap-created directories BEFORE unmounting.
+    #    Also remove any local symlinks that point into the SD, so we don't
+    #    leave dangling references after the SD is gone.
     if mountpoint -q /mnt/sdcard; then
         log_info "Removing bootstrap-created directories on SD card..."
         sudo rm -rf /mnt/sdcard/quantum_logs /mnt/sdcard/apt-cache
+    fi
+
+    # Remove dangling venv/logs symlinks (they will be recreated by the
+    # bootstrap as real local directories if it runs again).
+    if [ -L "venv" ]; then
+        log_info "Removing venv symlink..."
+        rm -f venv
+    fi
+    if [ -L "logs" ]; then
+        log_info "Removing logs symlink..."
+        rm -f logs
     fi
 
     # 3) Unmount LAST
