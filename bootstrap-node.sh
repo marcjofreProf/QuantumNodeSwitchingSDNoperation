@@ -378,13 +378,19 @@ fi
 if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLED"; then
     mkdir -p agent driver proto yang systemd test
 
+    # Always ensure a real logs/ directory exists locally. If the SD is
+    # mounted, we additionally create the SD target and make logs/ a symlink
+    # to it. If not, we leave logs/ as a regular directory.
+    #
+    # The unit files use StandardOutput=journal (see Phase 5), so the agent
+    # does not depend on logs/ existing. But we create it anyway so that any
+    # scripts that tail logs/*.log keep working.
+    mkdir -p logs
+
     if mountpoint -q /mnt/sdcard; then
         mkdir -p /mnt/sdcard/quantum_logs
         rm -rf logs
         ln -sfn /mnt/sdcard/quantum_logs logs
-    else
-        [ -L logs ] && rm -f logs
-        mkdir -p logs
     fi
 
     rm -f driver/gnmi_pin_mappings.json driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json
@@ -496,8 +502,8 @@ WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/gnoi_gnmi_agent.py
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:$PROJECT_DIR/logs/grpc_agent.log
-StandardError=append:$PROJECT_DIR/logs/grpc_agent.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -518,8 +524,8 @@ WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/agent/netconf_agent.py
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:$PROJECT_DIR/logs/netconf_agent.log
-StandardError=append:$PROJECT_DIR/logs/netconf_agent.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
