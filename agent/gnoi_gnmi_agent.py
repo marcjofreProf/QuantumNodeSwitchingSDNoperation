@@ -5,17 +5,26 @@ import logging
 from concurrent import futures
 import grpc
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# PROJECT_DIR is the repo root (parent of agent/).
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Make proto/ a top-level import root. gnmi_pb2.py internally does
+# "from github.com.openconfig... import gnmi_ext_pb2", which only resolves
+# if proto/ itself is on sys.path (so that github/ is a top-level package
+# and gnmi_ext_pb2 lives under github/com/openconfig/gnmi/proto/gnmi_ext/).
+sys.path.insert(0, PROJECT_DIR)
+sys.path.insert(0, os.path.join(PROJECT_DIR, "proto"))
+
+# Standard ONF gNMI stubs (top-level, because proto/ is on sys.path).
+import gnmi_pb2
+import gnmi_pb2_grpc
+
+# Custom gNOI switching stubs (also top-level from proto/).
+import quantum_gnoi_switching_pb2
+import quantum_gnoi_switching_pb2_grpc
+
+# Driver lives in the repo root, importable via PROJECT_DIR.
 from driver.gnoi_driver import OpticalMatrixDriver
-
-# Standard ONF gNMI protobuf stubs (from openconfig/gnmi v0.9.1)
-from proto import gnmi_pb2
-from proto import gnmi_pb2_grpc
-
-# Custom gNOI switching service (kept as-is)
-from proto import quantum_gnoi_switching_pb2
-from proto import quantum_gnoi_switching_pb2_grpc
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
