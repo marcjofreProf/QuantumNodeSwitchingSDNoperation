@@ -481,6 +481,33 @@ EOF
     ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
     ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnmi_switching.proto
 
+    # Standard OpenConfig gNMI protos, pinned to the same v0.9.1 revision the
+    # controller side uses. These generate gnmi_pb2 / gnmi_pb2_grpc, which
+    # the standard-gNMI variant of agent/gnoi_gnmi_agent.py imports.
+    mkdir -p proto/github.com/openconfig/gnmi/proto/gnmi_ext
+
+    if [ ! -f "proto/gnmi.proto" ]; then
+        curl -fsSL https://raw.githubusercontent.com/openconfig/gnmi/v0.9.1/proto/gnmi/gnmi.proto \
+            -o proto/gnmi.proto
+    fi
+    if [ ! -f "proto/github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto" ]; then
+        curl -fsSL https://raw.githubusercontent.com/openconfig/gnmi/v0.9.1/proto/gnmi_ext/gnmi_ext.proto \
+            -o proto/github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto
+    fi
+
+    ./venv/bin/python3 -m grpc_tools.protoc \
+        -Iproto \
+        --python_out=proto \
+        --grpc_python_out=proto \
+        proto/gnmi.proto \
+        proto/github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto
+
+    for d in github github/com github/com/openconfig github/com/openconfig/gnmi \
+             github/com/openconfig/gnmi/proto github/com/openconfig/gnmi/proto/gnmi_ext; do
+        mkdir -p "proto/$d"
+        touch "proto/$d/__init__.py"
+    done
+    
     log_success "Protobuf definitions compiled."
 fi
 
