@@ -96,18 +96,23 @@ echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 # proceed if it isn't mounted, so we never leave the node in a
 # half-offloaded state.
 # ---------------------------------------------------------------------------
-if ! mountpoint -q /mnt/sdcard; then
-    log_error "SD card is not mounted at /mnt/sdcard."
-    log_error "Insert the SD card, ensure it is formatted, and mount it before running this bootstrap."
-    exit 1
+# TEMPORARILY DISABLED: SD precondition.
+# Re-enable after the bootstrap has formatted and mounted the SD card for the
+# first time. See "Option 2" in the deployment notes.
+if false; then
+    if ! mountpoint -q /mnt/sdcard; then
+        log_error "SD card is not mounted at /mnt/sdcard."
+        log_error "Insert the SD card, ensure it is formatted, and mount it before running this bootstrap."
+        exit 1
+    fi
+    
+    if ! sudo touch /mnt/sdcard/.write_test 2>/dev/null; then
+        log_error "Cannot write to /mnt/sdcard. Check permissions and filesystem health."
+        exit 1
+    fi
+    sudo rm -f /mnt/sdcard/.write_test
+    log_success "SD card is mounted and writable at /mnt/sdcard."
 fi
-
-if ! sudo touch /mnt/sdcard/.write_test 2>/dev/null; then
-    log_error "Cannot write to /mnt/sdcard. Check permissions and filesystem health."
-    exit 1
-fi
-sudo rm -f /mnt/sdcard/.write_test
-log_success "SD card is mounted and writable at /mnt/sdcard."
 
 ARCH=$(uname -m)
 log_info "Detected System Architecture: $ARCH"
