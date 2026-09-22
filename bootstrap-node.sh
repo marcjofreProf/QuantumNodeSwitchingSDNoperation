@@ -490,36 +490,39 @@ EOF
     #
     # Note: NOT "github.com" with a dot. A directory named "github.com" is
     # unimportable from Python because dots split module names.
-    EXT_DIR="proto/github/com/openconfig/gnmi/proto/gnmi_ext"
+    EXT_DIR="proto/github.com/openconfig/gnmi/proto/gnmi_ext"
     mkdir -p "$EXT_DIR"
 
+    # Standard OpenConfig gNMI protos (pinned to v0.9.1).
+    #
+    # gnmi.proto ships with a Go-style import:
+    #     import "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto";
+    # protoc resolves that as a literal file path, and the generated Python
+    # stub then contains "from github.com.openconfig... import gnmi_ext_pb2".
+    # Python cannot import a package named "github.com" because dots split
+    # module names. So we rewrite the import to a flat name (gnmi_ext.proto),
+    # download both files side by side into proto/, and compile them flat.
     if [ ! -f "proto/gnmi.proto" ]; then
         curl -fsSL https://raw.githubusercontent.com/openconfig/gnmi/v0.9.1/proto/gnmi/gnmi.proto \
             -o proto/gnmi.proto
     fi
-    if [ ! -f "$EXT_DIR/gnmi_ext.proto" ]; then
+    if [ ! -f "proto/gnmi_ext.proto" ]; then
         curl -fsSL https://raw.githubusercontent.com/openconfig/gnmi/v0.9.1/proto/gnmi_ext/gnmi_ext.proto \
-            -o "$EXT_DIR/gnmi_ext.proto"
+            -o proto/gnmi_ext.proto
     fi
 
-    # Compile with -Iproto so that gnmi.proto's import of
-    # "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto" resolves to
-    # proto/github/com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto.
+    # Rewrite the Go-style import into a flat one.
+    sed -i 's|import "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto";|import "gnmi_ext.proto";|' proto/gnmi.proto
+
+    # Compile both files flat with -Iproto.
     ./venv/bin/python3 -m grpc_tools.protoc \
         -Iproto \
         --python_out=proto \
         --grpc_python_out=proto \
         proto/gnmi.proto \
-        "$EXT_DIR/gnmi_ext.proto"
+        proto/gnmi_ext.proto
 
-    # Python package markers along the nested path so that
-    # "from github.com.openconfig.gnmi.proto.gnmi_ext import gnmi_ext_pb2"
-    # works when proto/ is on sys.path.
-    for d in github github/com github/com/openconfig github/com/openconfig/gnmi \
-             github/com/openconfig/gnmi/proto github/com/openconfig/gnmi/proto/gnmi_ext; do
-        mkdir -p "proto/$d"
-        touch "proto/$d/__init__.py"
-    done
+    touch proto/__init__.py
 
     log_success "Protobuf definitions compiled."
 fi
