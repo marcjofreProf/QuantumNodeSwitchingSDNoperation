@@ -100,6 +100,11 @@ if prompt_yes_no "Phase 3: Clean compiled gRPC stubs and log symlinks (preserves
     log_info "Removing compiled Python gRPC stubs..."
     rm -f proto/*_pb2*.py proto/*_pb2_grpc.py
 
+    # Also remove the nested ONF gNMI stubs generated under
+    # proto/github/com/openconfig/gnmi/proto/gnmi_ext/.
+    rm -rf proto/github
+    rm -f proto/gnmi.proto
+
     if [ -L "logs" ]; then
         log_info "Removing logs symlink..."
         rm -f logs
