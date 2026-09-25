@@ -101,11 +101,19 @@ if prompt_yes_no "Phase 3: Clean compiled gRPC stubs and log symlinks (preserves
     rm -f proto/*_pb2*.py proto/*_pb2_grpc.py
 
     # Remove the downloaded ONF gNMI proto sources and any nested stub
-    # tree left over from older bootstrap versions.
+    # tree left over from older bootstrap versions. Also removes the legacy
+    # custom gNMI proto (see below).
     rm -f proto/gnmi.proto
     rm -f proto/gnmi_ext.proto
     rm -rf proto/github
     rm -rf proto/github.com
+
+    # Remove the legacy custom gNMI proto and its stubs. bootstrap-node.sh
+    # no longer generates them (the agents use the standard OpenConfig
+    # gnmi.proto instead), so clean up any copies left from older runs.
+    rm -f proto/quantum_gnmi_switching.proto
+    rm -f proto/quantum_gnmi_switching_pb2.py
+    rm -f proto/quantum_gnmi_switching_pb2_grpc.py
 
     if [ -L "logs" ]; then
         log_info "Removing logs symlink..."
