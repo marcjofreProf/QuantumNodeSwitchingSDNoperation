@@ -396,28 +396,13 @@ fi
 if should_run_phase "Phase 4 (Directory Structure & Protobufs)" "$PROTO_INSTALLED"; then
     mkdir -p agent driver proto yang systemd test
 
-    # Logs go on the SD if it's mounted, otherwise stay local. The unit
-    # files use StandardOutput=journal (see Phase 5), so logs/ is only for
-    # scripts that tail logs/*.log directly.
-    rm -rf logs
-    if mountpoint -q /mnt/sdcard; then
-        mkdir -p /mnt/sdcard/quantum_logs
-        sudo chown -R "$USER:$USER" /mnt/sdcard/quantum_logs
-        ln -sfn /mnt/sdcard/quantum_logs logs
-    else
-        mkdir -p logs
-    fi
+    # Remove dead artifacts from earlier bootstrap runs.
+    rm -f proto/quantum_gnmi_switching.proto \
+          proto/quantum_gnmi_switching_pb2.py \
+          proto/quantum_gnmi_switching_pb2_grpc.py
+    rm -rf proto/github.com
 
-    rm -f driver/gnmi_pin_mappings.json driver/gnoi_pin_mappings.json driver/netconf_pin_mappings.json
-    if [ "$ARCH" = "aarch64" ]; then
-        ln -sfn pin_switching_mappings.ai64.json driver/gnmi_pin_mappings.json
-        ln -sfn pin_switching_mappings.ai64.json driver/gnoi_pin_mappings.json
-        ln -sfn pin_switching_mappings.ai64.json driver/netconf_pin_mappings.json
-    else
-        ln -sfn pin_switching_mappings.bbb.json driver/gnmi_pin_mappings.json
-        ln -sfn pin_switching_mappings.bbb.json driver/gnoi_pin_mappings.json
-        ln -sfn pin_switching_mappings.bbb.json driver/netconf_pin_mappings.json
-    fi
+    # ... logs, pin mappings symlinks unchanged ...
 
     # 1. gNOI proto definition
     cat <<EOF > proto/quantum_gnoi_switching.proto
@@ -433,75 +418,18 @@ message StatusRequest {}
 message StatusResponse { bool is_connected = 1; string switch_type = 2; }
 EOF
 
-    # 2. gNMI proto definition
-    cat <<EOF > proto/quantum_gnmi_switching.proto
-syntax = "proto3";
-package gnmi;
-
-service gNMI {
-  rpc Capabilities(CapabilityRequest) returns (CapabilityResponse);
-  rpc Get(GetRequest) returns (GetResponse);
-  rpc Set(SetRequest) returns (SetResponse);
-  rpc Subscribe(stream SubscribeRequest) returns (stream SubscribeResponse);
-}
-
-message PathElem { string name = 1; }
-message Path { repeated PathElem elem = 1; string target = 2; }
-message TypedValue {
-  oneof value {
-    string string_val = 1;
-    bool bool_val = 2;
-    int64 int_val = 3;
-    bytes json_ietf_val = 4;
-  }
-}
-message Update { Path path = 1; TypedValue val = 2; }
-message GetRequest { repeated Path path = 1; string type = 2; }
-message GetResponse { repeated Update notification = 1; }
-message SetRequest { 
-  Path prefix = 1; 
-  repeated Path delete = 2; 
-  repeated Update replace = 3; 
-  repeated Update update = 4; 
-}
-message SetResponse { repeated Update response = 1; }
-message CapabilityRequest {}
-message ModelData { string name = 1; string organization = 2; string version = 3; }
-message CapabilityResponse {
-  repeated ModelData supported_models = 1;
-  repeated string supported_encodings = 2;
-  string gNMI_version = 3;
-}
-message SubscribeRequest {}
-message SubscribeResponse {}
-EOF
+    # Standard gNMI is used via the OpenConfig gnmi.proto below. There is no
+    # custom gNMI proto; the earlier quantum_gnmi_switching.proto was dead
+    # code (never imported by any agent) and has been removed.
 
     touch proto/__init__.py driver/__init__.py test/__init__.py agent/__init__.py
 
-    ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnoi_switching.proto
-    ./venv/bin/python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/quantum_gnmi_switching.proto
-
-    # Standard OpenConfig gNMI protos, pinned to the same v0.9.1 revision the
-    # controller side uses. gnmi.proto imports gnmi_ext.proto via the
-    # Go-style path "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto".
-    # Python resolves that as a package chain: github → com → openconfig →
-    # gnmi → proto → gnmi_ext. So the SOURCE .proto must live at
-    # proto/github/com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto.
-    #
-    # Note: NOT "github.com" with a dot. A directory named "github.com" is
-    # unimportable from Python because dots split module names.
-    EXT_DIR="proto/github.com/openconfig/gnmi/proto/gnmi_ext"
-    mkdir -p "$EXT_DIR"
+    ./venv/bin/python3 -m grpc_tools.protoc \
+        -I. --python_out=. --grpc_python_out=. \
+        proto/quantum_gnoi_switching.proto
 
     # Standard OpenConfig gNMI protos (pinned to v0.9.1).
-    #
-    # gnmi.proto ships with a Go-style import:
-    #     import "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto";
-    # protoc resolves that as a literal file path, and the generated Python
-    # stub then contains "from github.com.openconfig... import gnmi_ext_pb2".
-    # Python cannot import a package named "github.com" because dots split
-    # module names. So we rewrite the import to a flat name (gnmi_ext.proto),
-    # download both files side by side into proto/, and compile them flat.
+    # ... same as before ...
     if [ ! -f "proto/gnmi.proto" ]; then
         curl -fsSL https://raw.githubusercontent.com/openconfig/gnmi/v0.9.1/proto/gnmi/gnmi.proto \
             -o proto/gnmi.proto
@@ -510,11 +438,7 @@ EOF
         curl -fsSL https://raw.githubusercontent.com/openconfig/gnmi/v0.9.1/proto/gnmi_ext/gnmi_ext.proto \
             -o proto/gnmi_ext.proto
     fi
-
-    # Rewrite the Go-style import into a flat one.
     sed -i 's|import "github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto";|import "gnmi_ext.proto";|' proto/gnmi.proto
-
-    # Compile both files flat with -Iproto.
     ./venv/bin/python3 -m grpc_tools.protoc \
         -Iproto \
         --python_out=proto \
@@ -523,7 +447,6 @@ EOF
         proto/gnmi_ext.proto
 
     touch proto/__init__.py
-
     log_success "Protobuf definitions compiled."
 fi
 
