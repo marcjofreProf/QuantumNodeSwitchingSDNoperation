@@ -3,7 +3,7 @@
 # Quantum Node Switching - Safe Teardown & Uninstall Script
 # Reverses node bootstrap changes without deleting repository source code
 #
-# Matches bootstrap-node.sh "Design B": venv on local eMMC, logs and
+# Matches bootstrap-node.sh: venv on local eMMC, logs and
 # apt-cache opportunistically on the SD. Safe to run whether or not the
 # SD card is mounted.
 # ---------------------------------------------------------------------------
@@ -71,6 +71,7 @@ log_success "Systemd services removed."
 # --- Phase 2: Python Virtual Environment Cleanup ---
 # ---------------------------------------------------------------------------
 if prompt_yes_no "Phase 2: Remove Python virtual environment (./venv)?"; then
+    log_info "Phase 2: Removing Python virtual environment..."
     if [ -L "venv" ] || [ -d "venv" ]; then
         log_info "Removing local ./venv link/directory..."
         rm -rf venv
@@ -138,32 +139,40 @@ log_info "Phase 4: Network configuration preserved (not modified)."
 log_info "Phase 5: Fallback route preserved (not modified)."
 
 # ---------------------------------------------------------------------------
-# --- Phase 6: Optional APT Package Purge ---
+# --- Phase 6: Restore APT Cache to Internal eMMC ---
+#
+# This MUST run before any apt operation. The bootstrap may have left
+# /var/cache/apt/archives as a symlink to /mnt/sdcard/apt-cache. If the
+# SD card is not mounted, that symlink is dangling and every apt command
+# fails with "Archives directory ... missing". Restoring the local
+# directory first makes the following purge step actually work.
 # ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 6: Purge build dependencies (golang-go, protobuf-compiler, gpiod, libgpiod-dev)?"; then
-    log_info "Purging packages..."
-    sudo apt-get purge -y golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod || true
-    sudo apt-get autoremove -y
-    log_success "Packages purged."
+log_info "Phase 6: Restoring APT cache to internal eMMC..."
+if [ -L "/var/cache/apt/archives" ]; then
+    log_info "Removing APT cache symlink pointing to SD card..."
+    sudo rm -f /var/cache/apt/archives
 fi
 
-# ---------------------------------------------------------------------------
-# --- Phase 7: Restore APT Cache to Internal eMMC ---
-# ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 7: Restore APT cache to internal eMMC (Crucial if removing the SD card)?"; then
-    if [ -L "/var/cache/apt/archives" ]; then
-        log_info "Removing APT cache symlink pointing to SD card..."
-        sudo rm -f /var/cache/apt/archives
+# Recreate the directory whether it was a broken symlink or simply missing.
+if [ ! -d "/var/cache/apt/archives/partial" ]; then
+    log_info "Recreating default internal APT cache directories..."
+    sudo mkdir -p /var/cache/apt/archives/partial
+    sudo chown -R _apt:root /var/cache/apt/archives
+fi
+log_success "APT cache restored to eMMC."
 
-        log_info "Recreating default internal APT cache directories..."
-        sudo mkdir -p /var/cache/apt/archives/partial
-        sudo chown -R _apt:root /var/cache/apt/archives
-        sudo apt-get clean
-
-        log_success "APT cache safely unlinked and restored to eMMC."
-    else
-        log_info "APT cache is not symlinked. Skipping."
-    fi
+# ---------------------------------------------------------------------------
+# --- Phase 7: Purge Build Dependencies ---
+#
+# Runs after Phase 6 so apt has a working archives directory. Reports
+# failure honestly instead of masking it with `|| true`.
+# ---------------------------------------------------------------------------
+log_info "Phase 7: Purging build dependencies..."
+if sudo apt-get purge -y golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod; then
+    sudo apt-get autoremove -y || true
+    log_success "Packages purged."
+else
+    log_warn "Package purge failed; see the apt output above."
 fi
 
 # ---------------------------------------------------------------------------
