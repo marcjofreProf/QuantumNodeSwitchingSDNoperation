@@ -21,60 +21,51 @@ log_success() { echo -e "${GREEN}[SUCCESS] $1${NC}"; }
 log_warn()    { echo -e "${YELLOW}[WARNING] $1${NC}"; }
 log_error()   { echo -e "${RED}[ERROR] $1${NC}"; }
 
+# Teardown runs non-interactively: every prompt is auto-answered "yes".
 prompt_yes_no() {
-    while true; do
-        read -p "$1 [y/N]: " yn
-        case $yn in
-            [Yy]* ) return 0;;
-            [Nn]* | "" ) return 1;;
-            * ) echo "Please answer yes or no.";;
-        esac
-    done
+    return 0
 }
 
 echo -e "${RED}===========================================================${NC}"
 echo -e "${RED}    Quantum Node Switching Agent Teardown & Cleanup        ${NC}"
 echo -e "${RED}===========================================================${NC}"
 
-if ! prompt_yes_no "Proceed with stopping node services and cleaning runtime environments?"; then
-    log_info "Teardown cancelled."
-    exit 0
-fi
+log_info "All teardown actions will proceed automatically. Network configuration will be preserved."
 
 # ---------------------------------------------------------------------------
 # --- Phase 1: Systemd Service Cleanup ---
 # ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 1: Stop and remove systemd services (quantum-grpc-agent, quantum-netconf-agent)?"; then
-    log_info "Stopping and disabling agent services..."
-    sudo systemctl stop    quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
-    sudo systemctl disable quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
+log_info "Phase 1: Stopping and removing systemd services..."
+log_info "Stopping and disabling agent services..."
+sudo systemctl stop    quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
+sudo systemctl disable quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
 
-    if [ -L "/etc/systemd/system/quantum-grpc-agent.service" ] || [ -f "/etc/systemd/system/quantum-grpc-agent.service" ]; then
-        log_info "Removing unified gRPC systemd service..."
-        sudo rm -f /etc/systemd/system/quantum-grpc-agent.service
-    fi
-
-    # Clean up legacy gNMI / gNOI services if present
-    sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
-
-    if [ -L "/etc/systemd/system/quantum-netconf-agent.service" ] || [ -f "/etc/systemd/system/quantum-netconf-agent.service" ]; then
-        log_info "Removing NETCONF systemd service..."
-        sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
-    fi
-
-    # Remove the SD-wait guard if present. Design B does not install it, but
-    # a previous Design A install may have left it behind.
-    if [ -f "/etc/systemd/system/wait-sdcard.service" ]; then
-        log_info "Removing leftover wait-sdcard systemd service..."
-        sudo systemctl stop    wait-sdcard.service 2>/dev/null || true
-        sudo systemctl disable wait-sdcard.service 2>/dev/null || true
-        sudo rm -f /etc/systemd/system/wait-sdcard.service
-    fi
-
-    sudo systemctl daemon-reload
-    sudo systemctl reset-failed
-    log_success "Systemd services removed."
+if [ -L "/etc/systemd/system/quantum-grpc-agent.service" ] || [ -f "/etc/systemd/system/quantum-grpc-agent.service" ]; then
+    log_info "Removing unified gRPC systemd service..."
+    sudo rm -f /etc/systemd/system/quantum-grpc-agent.service
 fi
+
+# Clean up legacy gNMI / gNOI services if present
+sudo rm -f /etc/systemd/system/quantum-gnmi-agent.service /etc/systemd/system/quantum-gnoi-agent.service
+
+if [ -L "/etc/systemd/system/quantum-netconf-agent.service" ] || [ -f "/etc/systemd/system/quantum-netconf-agent.service" ]; then
+    log_info "Removing NETCONF systemd service..."
+    sudo rm -f /etc/systemd/system/quantum-netconf-agent.service
+fi
+
+# Remove the SD-wait guard if present. Design B does not install it, but
+# a previous Design A install may have left it behind.
+if [ -f "/etc/systemd/system/wait-sdcard.service" ]; then
+    log_info "Removing leftover wait-sdcard systemd service..."
+    sudo systemctl stop    wait-sdcard.service 2>/dev/null || true
+    sudo systemctl disable wait-sdcard.service 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/wait-sdcard.service
+fi
+
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+log_success "Systemd services removed."
+
 
 # ---------------------------------------------------------------------------
 # --- Phase 2: Python Virtual Environment Cleanup ---
@@ -129,94 +120,22 @@ if prompt_yes_no "Phase 3: Clean compiled gRPC stubs and log symlinks (preserves
 fi
 
 # ---------------------------------------------------------------------------
-# --- Phase 4: Network Configuration Teardown ---
-# Reverses bootstrap Phase 6 (persistent MANO network config).
-# The source-directory line is only removed if the bootstrap was the one
-# that added it, tracked via a marker file.
-# Also removes the live /32 host route to the controller, which the
-# interface's `down` hook would normally have handled but will not fire
-# because we delete the file while the interface stays up.
+# --- Phase 4: Network Configuration (intentionally preserved) ---
+#
+# The teardown does not modify the host's network configuration. The
+# interface settings, static routes, and /etc/resolv.conf written by the
+# bootstrap are left in place so the node stays reachable and no reboot
+# is required. Re-running the bootstrap will overwrite them if needed.
 # ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 4: Remove MANO network config (interfaces.d entry, host route, resolv.conf)?"; then
-    IFACE_CONF="/etc/network/interfaces.d/quantum-node"
-    SRC_MARKER="/etc/network/.quantum_managed_source_line"
-
-    if [ -f "$IFACE_CONF" ]; then
-        log_info "Removing persistent interface config $IFACE_CONF..."
-        # Show what was configured, including any host-route hooks
-        grep -E "^[[:space:]]*(address|gateway|hwaddress|dns-nameservers|up[[:space:]]|down[[:space:]])" \
-            "$IFACE_CONF" 2>/dev/null | sed 's/^/    /'
-
-        # Capture the controller host route from the `up` hook BEFORE deleting
-        # the file, so we can remove it from the live routing table too.
-        CONTROLLER_HOST_ROUTE=$(grep -E "^[[:space:]]*up[[:space:]]+ip route add" "$IFACE_CONF" 2>/dev/null \
-            | sed -E 's/.*ip route add ([0-9./]+) via ([0-9.]+).*/\1 \2/' \
-            | head -n1)
-
-        sudo rm -f "$IFACE_CONF"
-
-        # Drop the live host route, since the `down` hook is never called when
-        # the config file is removed without bringing the interface down.
-        if [ -n "$CONTROLLER_HOST_ROUTE" ]; then
-            route_target=$(echo "$CONTROLLER_HOST_ROUTE" | awk '{print $1}')
-            route_via=$(echo "$CONTROLLER_HOST_ROUTE"   | awk '{print $2}')
-            if [ -n "$route_target" ] && [ -n "$route_via" ] && \
-               ip route show "$route_target" 2>/dev/null | grep -q "via $route_via"; then
-                log_info "Removing live host route $route_target via $route_via..."
-                sudo ip route del "$route_target" via "$route_via" || true
-            else
-                log_info "Live host route to controller not present (already gone)."
-            fi
-        fi
-    else
-        log_info "No $IFACE_CONF present."
-    fi
-
-    # Only remove the source-directory line if bootstrap was the one that
-    # added it (marker present) AND interfaces.d is now empty.
-    if [ -f "$SRC_MARKER" ]; then
-        if [ -z "$(ls -A /etc/network/interfaces.d 2>/dev/null)" ]; then
-            log_info "interfaces.d is empty and marker present; removing source line we added..."
-            sudo sed -i -E '/^source(-directory)?[[:space:]]+\/etc\/network\/interfaces\.d/d' /etc/network/interfaces
-        else
-            log_warn "interfaces.d still contains other files; leaving source line in place."
-        fi
-        sudo rm -f "$SRC_MARKER"
-    else
-        log_info "Source-directory line was not added by bootstrap; leaving /etc/network/interfaces untouched."
-    fi
-
-    # Restore resolv.conf to plain public DNS (the controller DNS is gone)
-    log_info "Restoring /etc/resolv.conf to public DNS..."
-    sudo rm -f /etc/resolv.conf
-    sudo tee /etc/resolv.conf > /dev/null <<EOF
-# Restored by uninstall-bootstrap-node.sh
-nameserver 8.8.8.8
-nameserver 1.1.1.1
-EOF
-
-    log_success "MANO network configuration removed."
-fi
+log_info "Phase 4: Network configuration preserved (not modified)."
 
 # ---------------------------------------------------------------------------
-# --- Phase 5: Network Route Fallback Cleanup ---
+# --- Phase 5: Fallback Route (intentionally preserved) ---
+# The fallback default route added by the bootstrap during its run is
+# session-only and does not persist. It is not removed here because the
+# teardown does not modify live network state.
 # ---------------------------------------------------------------------------
-if prompt_yes_no "Phase 5: Remove fallback default route (10.0.0.1) if active?"; then
-    if ip route show | grep -q "default via 10.0.0.1"; then
-        total_default_routes=$(ip route show | grep -c "^default")
-
-        if [ "$total_default_routes" -gt 1 ]; then
-            log_info "Multiple default routes detected. Safely removing fallback route via 10.0.0.1..."
-            sudo ip route del default via 10.0.0.1 || true
-            log_success "Fallback route removed."
-        else
-            log_warn "Route 10.0.0.1 is the ONLY active default route on this node."
-            log_warn "Skipping deletion to prevent losing network/internet connectivity."
-        fi
-    else
-        log_info "Fallback route 10.0.0.1 is not currently active."
-    fi
-fi
+log_info "Phase 5: Fallback route preserved (not modified)."
 
 # ---------------------------------------------------------------------------
 # --- Phase 6: Optional APT Package Purge ---
@@ -316,18 +235,3 @@ fi
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Teardown Complete! Repository files preserved. ${NC}"
 echo -e "${GREEN}====================================================${NC}"
-
-# ---------------------------------------------------------------------------
-# --- Phase 10: Reboot to apply network/fstab changes ---
-# ---------------------------------------------------------------------------
-log_warn "Network and fstab changes only take effect after a reboot."
-if prompt_yes_no "Reboot now to apply the teardown changes?"; then
-    log_info "Flushing buffers and rebooting..."
-    sync
-    sleep 3
-    log_warn "If this is a remote SSH session, it will now disconnect."
-    sleep 2
-    sudo reboot -f
-else
-    log_info "Reboot skipped. Please reboot manually when convenient."
-fi
