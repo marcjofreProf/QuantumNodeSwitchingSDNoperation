@@ -164,12 +164,21 @@ log_success "APT cache restored to eMMC."
 # ---------------------------------------------------------------------------
 # --- Phase 7: Purge Build Dependencies ---
 #
-# Runs after Phase 6 so apt has a working archives directory. Reports
-# failure honestly instead of masking it with `|| true`.
+# Runs after Phase 6 so apt has a working archives directory.
+#
+# APT::Get::AutomaticRemove=false and APT::Get::Remove=false disable
+# apt's cascade behaviour: only the named packages are removed. Without
+# these, purging gpiod also drags out bb-cape-overlays (its dependency on
+# the RCN-EE kernel), and purging golang-go / protobuf-compiler drags out
+# their nine library dependencies. On a dedicated node that is harmless,
+# but on a reused BeagleBone it can silently remove packages another
+# project needs.
 # ---------------------------------------------------------------------------
-log_info "Phase 7: Purging build dependencies..."
-if sudo apt-get purge -y golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod; then
-    sudo apt-get autoremove -y || true
+log_info "Phase 7: Purging build dependencies (no cascade)..."
+if sudo apt-get purge -y \
+        -o APT::Get::AutomaticRemove=false \
+        -o APT::Get::Remove=false \
+        golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod; then
     log_success "Packages purged."
 else
     log_warn "Package purge failed; see the apt output above."
