@@ -42,6 +42,30 @@ prompt_with_default() {
     fi
 }
 
+# Convert a CIDR prefix length (e.g. 24) into a dotted-decimal netmask.
+cidr_to_netmask() {
+    local prefix=$1
+    local mask=$(( (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF ))
+    printf "%d.%d.%d.%d\n" \
+        $(( (mask >> 24) & 0xFF )) \
+        $(( (mask >> 16) & 0xFF )) \
+        $(( (mask >> 8)  & 0xFF )) \
+        $(( mask & 0xFF ))
+}
+
+# Return 0 if $1 (an IP) is inside the subnet formed by $2 (subnet IP)
+# and $3 (prefix length). Return 1 otherwise.
+in_subnet() {
+    local ip=$1 base=$2 prefix=$3
+    local a b c d e f g h
+    IFS=. read -r a b c d <<< "$ip"
+    IFS=. read -r e f g h <<< "$base"
+    local ip_num=$(( (a << 24) | (b << 16) | (c << 8) | d ))
+    local base_num=$(( (e << 24) | (f << 16) | (g << 8) | h ))
+    local mask=$(( (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF ))
+    [ $(( (ip_num ^ base_num) & mask )) -eq 0 ]
+}
+
 # Phase gate:
 #   - MISSING/unconfigured -> run immediately, NO prompt.
 #   - ALREADY installed    -> ask the user whether to re-install.
@@ -107,26 +131,31 @@ log_info "Detected System Architecture: $ARCH"
 
 # Globals used by Phase 0 and applied persistently in Phase 6.
 DEVICE_IP=""
+DEVICE_CIDR=""
+DEVICE_PREFIX=""
+DEVICE_NETMASK=""
+ROUTER_IP=""
 CONTROLLER_IP=""
 PRIMARY_IF=""
 RANDOM_MAC=""
+NEED_HOST_ROUTE="false"
 NET_CONFIG_PENDING="false"
 IFACE_CONF="/etc/network/interfaces.d/quantum-node"
 SRC_MARKER="/etc/network/.quantum_managed_source_line"
 
 # ---------------------------------------------------------------------------
-# --- Phase 0: IP MANO / Network Configuration ---
+# --- Phase 0: Network Configuration ---
 # ---------------------------------------------------------------------------
-# "Installed" means the MANO config file exists, NOT that we can ping 8.8.8.8.
-# Reaching the internet via DHCP on a factory BBB is NOT a signal that the
-# MANO configuration has been applied.
+# "Installed" means the network config file exists, NOT that we can ping
+# 8.8.8.8. Reaching the internet via DHCP on a factory BBB is NOT a signal
+# that the static network configuration has been applied.
 NET_INSTALLED=1
 if [ -f "$IFACE_CONF" ]; then
     NET_INSTALLED=0
 fi
 
-if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"; then
-    log_info "Preparing MANO network configuration..."
+if should_run_phase "Phase 0 (Network Configuration)" "$NET_INSTALLED"; then
+    log_info "Preparing network configuration..."
 
     # --- Detect primary network interface ---
     PRIMARY_IF=$(ip -o -4 route show to default 2>/dev/null | awk '{print $5}' | head -n1)
@@ -140,11 +169,33 @@ if should_run_phase "Phase 0 (IP MANO / Network Configuration)" "$NET_INSTALLED"
     else
         log_info "Primary network interface detected: $PRIMARY_IF"
 
-        # --- Ask user for MANO IPs ---
-        DEVICE_IP=$(prompt_with_default "Enter the IP address for THIS device (node)" "172.21.128.254")
-        GATEWAY_IP=$(prompt_with_default "Enter the LAN gateway IP for the node subnet" "172.21.128.1")
+        # --- Ask user for network configuration ---
+        DEVICE_CIDR=$(prompt_with_default "Enter the IP address and prefix length for THIS device (node)" "172.21.128.254/24")
+        ROUTER_IP=$(prompt_with_default "Enter the default router IP" "172.21.128.1")
         CONTROLLER_IP=$(prompt_with_default "Enter the IP address of the Network Controller" "172.21.2.23")
-        log_info "Device IP: $DEVICE_IP   |   Gateway: $GATEWAY_IP   |   Controller: $CONTROLLER_IP"
+
+        # Split CIDR into IP and prefix, then derive the dotted netmask.
+        DEVICE_IP="${DEVICE_CIDR%%/*}"
+        DEVICE_PREFIX="${DEVICE_CIDR##*/}"
+        DEVICE_NETMASK="$(cidr_to_netmask "$DEVICE_PREFIX")"
+
+        log_info "Device:          $DEVICE_IP/$DEVICE_PREFIX (netmask $DEVICE_NETMASK)"
+        log_info "Default router:  $ROUTER_IP"
+        log_info "Controller:      $CONTROLLER_IP"
+
+        # Determine whether the controller is on the same IP subnet as the
+        # device. If yes, the kernel's directly-connected route would send
+        # traffic to the controller over L2, which fails when the controller
+        # sits behind the default router. A /32 host route overrides that.
+        # If the controller is on a different subnet, the default route
+        # already reaches it and no extra route is needed.
+        NEED_HOST_ROUTE=false
+        if in_subnet "$CONTROLLER_IP" "$DEVICE_IP" "$DEVICE_PREFIX"; then
+            NEED_HOST_ROUTE=true
+            log_info "Controller is on the same subnet as this node; a /32 route via the default router will be added."
+        else
+            log_info "Controller is on a different subnet; the default route will reach it."
+        fi
 
         # --- Random, persistent, locally-administered unicast MAC ---
         RANDOM_MAC=""
@@ -541,20 +592,30 @@ if [ "$NET_CONFIG_PENDING" = "true" ] && [ -n "$PRIMARY_IF" ]; then
         log_info "Added source-directory line (marker $SRC_MARKER set for later cleanup)."
     fi
 
-    sudo tee "$IFACE_CONF" > /dev/null <<EOF
-# Quantum Node Switching - managed by bootstrap-node.sh
-# Node: $DEVICE_IP   Gateway: $GATEWAY_IP   Controller: $CONTROLLER_IP
-auto $PRIMARY_IF
-iface $PRIMARY_IF inet static
-    address $DEVICE_IP
-    netmask 255.255.255.0
-    gateway $GATEWAY_IP
-    hwaddress ether $RANDOM_MAC
-    dns-nameservers $CONTROLLER_IP 8.8.8.8 1.1.1.1
-    # Controller lives on a different subnet; reach it via the LAN gateway.
-    up   ip route add $CONTROLLER_IP/32 via $GATEWAY_IP || true
-    down ip route del $CONTROLLER_IP/32 via $GATEWAY_IP || true
-EOF
+    # Emit the interface config line by line. The /32 host route to the
+    # controller is only emitted when the controller is on the SAME subnet
+    # as this node — that is the only case where the kernel's
+    # directly-connected route would try to reach the controller over L2
+    # and fail because the controller is actually behind the router.
+    {
+        echo "# Quantum Node Switching - managed by bootstrap-node.sh"
+        echo "# Node: $DEVICE_IP/$DEVICE_PREFIX   Router: $ROUTER_IP   Controller: $CONTROLLER_IP"
+        echo "auto $PRIMARY_IF"
+        echo "iface $PRIMARY_IF inet static"
+        echo "    address $DEVICE_IP"
+        echo "    netmask $DEVICE_NETMASK"
+        echo "    gateway $ROUTER_IP"
+        echo "    hwaddress ether $RANDOM_MAC"
+        echo "    dns-nameservers $CONTROLLER_IP 8.8.8.8 1.1.1.1"
+        if [ "$NEED_HOST_ROUTE" = "true" ]; then
+            echo "    # Controller is on the same subnet as this node, but sits behind"
+            echo "    # the default router. Pin it with a /32 host route so traffic is"
+            echo "    # not sent over the L2 segment looking for an unreachable peer."
+            echo "    up   ip route add $CONTROLLER_IP/32 via $ROUTER_IP || true"
+            echo "    down ip route del $CONTROLLER_IP/32 via $ROUTER_IP || true"
+        fi
+    } | sudo tee "$IFACE_CONF" > /dev/null
+    
     log_success "Persistent interface config written."
 
     # Update the on-disk resolv.conf: Controller first, public resolvers as fallback
@@ -580,11 +641,22 @@ echo -e "To tail all live logs together:  ${YELLOW}journalctl -u quantum-grpc-ag
 echo -e "${GREEN}====================================================${NC}"
 
 # ---------------------------------------------------------------------------
-# --- Final step: reboot to apply IP/MAC/network changes ---
+# --- Final step: conditional reboot ---
+#
+# A reboot is only required when the persistent network configuration was
+# (re)written in this run. Everything else (systemd units, kernel sysctl,
+# package installs, SD card fstab) takes effect immediately or on the next
+# mount. Skipping the reboot keeps an already-configured node running with
+# no interruption.
 # ---------------------------------------------------------------------------
-log_info "Flushing filesystem buffers and rebooting to apply network config..."
-sync
-sleep 3
-log_warn "If this is a remote SSH session, it will now disconnect."
-sleep 2
-sudo reboot -f
+if [ "$NET_CONFIG_PENDING" = "true" ]; then
+    log_warn "Network configuration was written; a reboot is required to apply it."
+    sync
+    sleep 3
+    log_warn "If this is a remote SSH session, it will now disconnect."
+    sleep 2
+    sudo reboot -f
+else
+    log_success "No network changes were made in this run; skipping reboot."
+    log_info "Node bootstrap complete."
+fi
