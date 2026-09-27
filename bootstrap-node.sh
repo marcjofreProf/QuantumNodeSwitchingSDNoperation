@@ -146,11 +146,18 @@ SRC_MARKER="/etc/network/.quantum_managed_source_line"
 # ---------------------------------------------------------------------------
 # --- Phase 0: Network Configuration ---
 # ---------------------------------------------------------------------------
-# "Installed" means the network config file exists, NOT that we can ping
-# 8.8.8.8. Reaching the internet via DHCP on a factory BBB is NOT a signal
-# that the static network configuration has been applied.
+# "Installed" means the network config file exists AND the main
+# interfaces file actually sources the interfaces.d directory.
+#
+# On the factory Debian Buster image, /etc/network/interfaces sometimes
+# ships without a source-directory line. If that line is missing, the
+# static config in interfaces.d/quantum-node is silently ignored, the
+# interface comes up with a DHCP lease at boot, and the controller
+# becomes unreachable. Requiring both conditions makes a re-run of the
+# bootstrap repair that case automatically.
 NET_INSTALLED=1
-if [ -f "$IFACE_CONF" ]; then
+if [ -f "$IFACE_CONF" ] && \
+   grep -qE '^source(-directory)?[[:space:]]+/etc/network/interfaces\.d' /etc/network/interfaces 2>/dev/null; then
     NET_INSTALLED=0
 fi
 
@@ -299,60 +306,132 @@ else
     if should_run_phase "Phase 0.8 (SD Card Offloading)" "$SD_INSTALLED"; then
         check_and_install parted util-linux e2fsprogs
 
-        ROOT_MMC=$(findmnt -n -o SOURCE / | grep -o 'mmcblk[0-9]')
-        if [ "$ROOT_MMC" = "mmcblk0" ]; then
-            SD_DISK="/dev/mmcblk1"
-        else
-            SD_DISK="/dev/mmcblk0"
-        fi
+        # -----------------------------------------------------------------
+        # Identify the SD card safely.
+        #
+        # The AM335x kernel assigns mmcblk0 and mmcblk1 based on probe
+        # order at boot, not on hardware. The eMMC can end up as either
+        # name depending on whether the SD card was detected in time and
+        # what else is on the bus. Never trust the name.
+        #
+        # The SD card is identified by exclusion:
+        #   (a) it is an mmcblk block device,
+        #   (b) its name matches ^mmcblk[0-9]+$ (this excludes the eMMC
+        #       boot partitions mmcblkXboot0 / mmcblkXboot1 which are also
+        #       type=disk on some kernels), and
+        #   (c) it is NOT the parent disk of the root filesystem,
+        #   (d) it is NOT the parent of any currently mounted filesystem.
+        #
+        # Any candidate that fails (c) or (d) is skipped, so this cannot
+        # accidentally target the eMMC.
+        # -----------------------------------------------------------------
+        ROOT_SRC=$(findmnt -n -o SOURCE /)
+        ROOT_DISK=$(lsblk -no pkname "$ROOT_SRC" 2>/dev/null | head -n1)
+        log_info "Root filesystem: $ROOT_SRC (parent disk: ${ROOT_DISK:-unknown})"
 
-        if [ -b "$SD_DISK" ]; then
-            log_info "Wiping all contents and eMMC flasher boot headers from $SD_DISK..."
+        SD_DISK=""
+        while read -r dev type; do
+            [ "$type" = "disk" ]              || continue
+            [[ "$dev" =~ ^mmcblk[0-9]+$ ]]    || continue
+            [ "$dev" = "$ROOT_DISK" ]         && continue
+
+            # Refuse any device with a mounted child
+            if lsblk -nlo MOUNTPOINT "/dev/$dev" 2>/dev/null | grep -qv '^$'; then
+                log_warn "Skipping /dev/$dev: has mounted partitions"
+                continue
+            fi
+
+            SD_DISK="/dev/$dev"
+            break
+        done < <(lsblk -ndo NAME,TYPE 2>/dev/null)
+
+        if [ -z "$SD_DISK" ] || [ ! -b "$SD_DISK" ]; then
+            log_warn "No candidate SD card device found."
+            log_warn "  If the SD is inserted, check: lsblk -o NAME,SIZE,TYPE,MOUNTPOINT"
+            log_warn "  Skipping SD offload; logs and apt cache stay on eMMC."
+        else
+            log_info "SD card identified by exclusion: $SD_DISK"
+
+            # -----------------------------------------------------------------
+            # Wipe first 10 MB and repartition.
+            #
+            # The zeroing destroys any legacy U-Boot flasher header that
+            # would otherwise make the SD bootable and re-flash the eMMC
+            # on the next power cycle. It is safe here because we are
+            # about to reformat the whole card.
+            # -----------------------------------------------------------------
+            log_info "Wiping $SD_DISK and creating a fresh ext4 partition..."
             sudo systemctl stop quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
             sudo umount /mnt/sdcard 2>/dev/null || true
             sudo umount -l ${SD_DISK}* 2>/dev/null || true
 
-            # Delete entire partition table and zero out legacy U-Boot flasher sectors
-            sudo dd if=/dev/zero of=$SD_DISK bs=1M count=10 status=none || true
+            sudo dd if=/dev/zero of="$SD_DISK" bs=1M count=10 status=none || true
 
-            # Format clean ext4 partition
-            sudo parted -s $SD_DISK mklabel msdos
-            sudo parted -s $SD_DISK mkpart primary ext4 0% 100%
-            sudo partprobe $SD_DISK
-            sleep 2
+            sudo parted -s "$SD_DISK" mklabel msdos
+            sudo parted -s "$SD_DISK" mkpart primary ext4 0% 100%
+            sudo partprobe "$SD_DISK"
 
+            # Wait for the kernel to publish the new partition node.
+            # udev can take a moment on slower SD cards; use a bounded loop
+            # instead of a fixed sleep.
             SD_TARGET="${SD_DISK}p1"
-            sudo mkfs.ext4 -F $SD_TARGET
+            for _ in $(seq 1 10); do
+                [ -b "$SD_TARGET" ] && break
+                sleep 0.5
+            done
 
-            sudo mkdir -p /mnt/sdcard
-            sudo mount $SD_TARGET /mnt/sdcard
-
-            # --- Resilient fstab entry ---
-            # _netdev        : wait for device subsystem, not the network stack
-            # nofail         : do not block boot if SD is absent
-            # device-timeout : cap the wait so boot never hangs on the SD
-            FSTAB_LINE="$SD_TARGET /mnt/sdcard auto defaults,nofail,_netdev,x-systemd.device-timeout=10 0 2"
-            if ! grep -q "$SD_TARGET /mnt/sdcard" /etc/fstab; then
-                echo "$FSTAB_LINE" | sudo tee -a /etc/fstab
+            if [ ! -b "$SD_TARGET" ]; then
+                log_error "Partition $SD_TARGET did not appear after partprobe."
+                log_error "  SD offload skipped; logs and apt cache stay on eMMC."
             else
-                sudo sed -i "\|$SD_TARGET /mnt/sdcard|d" /etc/fstab
-                echo "$FSTAB_LINE" | sudo tee -a /etc/fstab
-            fi
+                sudo mkfs.ext4 -F "$SD_TARGET"
 
-            sudo chown -R $USER:$USER /mnt/sdcard
-            sudo mkdir -p /mnt/sdcard/apt-cache/partial
-            sudo chown -R _apt:root /mnt/sdcard/apt-cache
+                sudo mkdir -p /mnt/sdcard
+                if ! sudo mount "$SD_TARGET" /mnt/sdcard; then
+                    log_error "Failed to mount $SD_TARGET on /mnt/sdcard."
+                    log_error "  SD offload skipped; logs and apt cache stay on eMMC."
+                else
+                    # -----------------------------------------------------------------
+                    # Resilient fstab entry, keyed by UUID.
+                    #
+                    # Do NOT mount by device name. If the SD card is absent
+                    # at boot, or if the kernel swaps mmcblk0/mmcblk1 between
+                    # boots, a device-name entry points at the wrong device
+                    # or blocks boot waiting for a device that never appears.
+                    # UUIDs travel with the filesystem and are immune to that.
+                    #
+                    #   nofail                    : do not block boot if SD is absent
+                    #   x-systemd.device-timeout  : cap the wait
+                    # -----------------------------------------------------------------
+                    SD_UUID=$(sudo blkid -s UUID -o value "$SD_TARGET")
+                    if [ -z "$SD_UUID" ]; then
+                        log_error "Could not read UUID of $SD_TARGET."
+                        log_error "  SD offload skipped; logs and apt cache stay on eMMC."
+                    else
+                        FSTAB_LINE="UUID=$SD_UUID /mnt/sdcard auto defaults,nofail,x-systemd.device-timeout=10 0 2"
 
-            # Idempotent: only replace the local dir if it isn't already the
-            # expected symlink.
-            if [ ! -L /var/cache/apt/archives ] || \
-               [ "$(readlink /var/cache/apt/archives)" != "/mnt/sdcard/apt-cache" ]; then
-                sudo rm -rf /var/cache/apt/archives
-                sudo ln -s /mnt/sdcard/apt-cache /var/cache/apt/archives
+                        # Remove any prior /mnt/sdcard entry regardless of how
+                        # it was keyed (device name from an older script, a
+                        # stale UUID, etc.)
+                        sudo sed -i '\|\s/mnt/sdcard\s|d' /etc/fstab
+                        echo "$FSTAB_LINE" | sudo tee -a /etc/fstab >/dev/null
+                        log_info "fstab entry written: $FSTAB_LINE"
+
+                        sudo chown -R "$USER:$USER" /mnt/sdcard
+                        sudo mkdir -p /mnt/sdcard/apt-cache/partial
+                        sudo chown -R _apt:root /mnt/sdcard/apt-cache
+
+                        # Idempotent: only replace the local dir if it is not
+                        # already the expected symlink.
+                        if [ ! -L /var/cache/apt/archives ] || \
+                           [ "$(readlink /var/cache/apt/archives)" != "/mnt/sdcard/apt-cache" ]; then
+                            sudo rm -rf /var/cache/apt/archives
+                            sudo ln -s /mnt/sdcard/apt-cache /var/cache/apt/archives
+                        fi
+                        log_success "SD card ready: $SD_TARGET (UUID $SD_UUID) at /mnt/sdcard."
+                    fi
+                fi
             fi
-            log_success "SD Card wiped, formatted, mounted, and linked."
-        else
-            log_warn "No SD card hardware found at $SD_DISK."
         fi
     fi
 fi
@@ -577,10 +656,78 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
-# --- Phase 6: Apply persistent MANO network configuration (IP/MAC/DNS) ---
+# --- Phase 6: Apply persistent network configuration (IP/MAC/DNS) ---
 # ---------------------------------------------------------------------------
 if [ "$NET_CONFIG_PENDING" = "true" ] && [ -n "$PRIMARY_IF" ]; then
     log_info "Writing persistent network configuration to $IFACE_CONF..."
+
+    # -----------------------------------------------------------------
+    # Make interfaces.d authoritative at boot.
+    #
+    # ifupdown reads /etc/network/interfaces top to bottom. The factory
+    # Debian Buster image ships with a source-directory line at the top
+    # of the file and an eth0 dhcp block further down. Because the DHCP
+    # block comes last, it wins on every boot, and the static config in
+    # interfaces.d/quantum-node is silently overridden. The node then
+    # comes up on a DHCP lease and the controller becomes unreachable.
+    #
+    # Three changes make the outcome deterministic:
+    #   1. Back up /etc/network/interfaces once.
+    #   2. Comment out any auto/iface block for our interface in the
+    #      main file, so it cannot compete.
+    #   3. Remove every source-directory line for interfaces.d and
+    #      append a single one at the very end.
+    # -----------------------------------------------------------------
+    if [ ! -f "${IFACE_CONF}.main.bak" ]; then
+        sudo cp /etc/network/interfaces "${IFACE_CONF}.main.bak"
+        log_info "Backed up /etc/network/interfaces to ${IFACE_CONF}.main.bak"
+    fi
+
+    log_info "Normalising /etc/network/interfaces..."
+    sudo python3 - "$PRIMARY_IF" <<'PYEOF'
+import re, sys
+iface = sys.argv[1]
+path = "/etc/network/interfaces"
+with open(path) as f:
+    lines = f.readlines()
+
+out = []
+in_disabled_block = False
+for line in lines:
+    s = line.rstrip("\n")
+    t = s.strip()
+
+    new_stanza = bool(re.match(
+        r"^(auto|iface|source|source-directory|mapping|allow-)\b", t))
+
+    if re.match(rf"^auto\s+{re.escape(iface)}\s*$", t) or \
+       re.match(rf"^iface\s+{re.escape(iface)}\b", t):
+        out.append("# [bootstrap] disabled: " + s + "\n")
+        in_disabled_block = True
+        continue
+
+    if new_stanza:
+        in_disabled_block = False
+
+    if in_disabled_block and (s.startswith(" ") or s.startswith("\t")):
+        out.append("# " + s + "\n")
+        continue
+
+    if re.match(r"^source(-directory)?\s+/etc/network/interfaces\.d", t):
+        out.append("# [bootstrap] removed (re-added at end): " + s + "\n")
+        continue
+
+    out.append(line)
+
+out.append("\n# [bootstrap] interfaces.d must be read last so it wins.\n")
+out.append("source-directory /etc/network/interfaces.d\n")
+
+with open(path, "w") as f:
+    f.writelines(out)
+PYEOF
+
+    sudo touch "$SRC_MARKER"
+    log_info "Interfaces file normalised."
 
     sudo mkdir -p /etc/network/interfaces.d
 
@@ -628,6 +775,17 @@ nameserver 1.1.1.1
 options timeout:1 attempts:1
 EOF
     log_success "Persistent /etc/resolv.conf written (controller + public fallback)."
+
+    # Mark resolv.conf immutable so dhclient and any other userspace
+    # daemon cannot silently overwrite it. On Debian Buster the file is
+    # a regular file, and dhclient rewrites it on every lease event and
+    # on every boot, wiping the controller DNS entry and leaving the
+    # node unable to resolve the controller.
+    #
+    # The matching removal lives in uninstall-bootstrap-node.sh, which
+    # clears the attribute before its own teardown.
+    sudo chattr +i /etc/resolv.conf 2>/dev/null || \
+        log_warn "Could not set immutable attribute on /etc/resolv.conf."
 
     # No iptables rules are required; the static default route via the
     # controller handles northbound traffic.
