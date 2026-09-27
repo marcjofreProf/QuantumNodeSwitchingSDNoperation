@@ -271,6 +271,23 @@ if prompt_yes_no "Phase 9: Remove dpkg no-doc / no-locale exclusions (restore do
     log_success "pip caches cleared."
 fi
 
+# ---------------------------------------------------------------------------
+# Restore the flasher trigger if it was disabled by the bootstrap.
+#
+# The bootstrap comments out cmdline=init=/usr/sbin/init-beagle-flasher in
+# /boot/uEnv.txt to protect the configuration. On teardown, restoring the
+# original line makes the board ready to be reflashed by a future SD card
+# if the operator wants to.
+# ---------------------------------------------------------------------------
+if [ -f /boot/uEnv.txt ]; then
+    latest_backup=$(ls -t /boot/uEnv.txt.bak.* 2>/dev/null | head -n1 || true)
+    if [ -n "$latest_backup" ] && [ -f "$latest_backup" ]; then
+        log_info "Restoring flasher trigger from $latest_backup..."
+        sudo cp "$latest_backup" /boot/uEnv.txt
+        log_success "uEnv.txt restored from backup."
+    fi
+fi
+
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Teardown Complete! Repository files preserved. ${NC}"
 echo -e "${GREEN}====================================================${NC}"
