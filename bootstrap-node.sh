@@ -335,6 +335,21 @@ else
             [[ "$dev" =~ ^mmcblk[0-9]+$ ]]    || continue
             [ "$dev" = "$ROOT_DISK" ]         && continue
 
+            # Skip any device whose size matches the BeagleBone's on-board
+            # eMMC. The BBB ships with a 4 GB nominal (3.6 GiB actual) eMMC.
+            # If the node boots from the SD card rather than the eMMC, the
+            # root disk is mmcblk0 and the eMMC is mmcblk1 — the exclusion
+            # above would leave the eMMC as the only candidate, and this
+            # script would then zero and repartition the eMMC. Checking the
+            # size protects against that.
+            SECTORS=$(cat /sys/block/$dev/size 2>/dev/null || echo 0)
+            SIZE_GB=$(( SECTORS * 512 / 1000000000 ))
+
+            if [ "$SIZE_GB" -ge 3 ] && [ "$SIZE_GB" -le 4 ]; then
+                log_warn "Skipping /dev/$dev: size ${SIZE_GB}GB matches the eMMC's known capacity."
+                continue
+            fi
+
             # Refuse any device with a mounted child
             if lsblk -nlo MOUNTPOINT "/dev/$dev" 2>/dev/null | grep -qv '^$'; then
                 log_warn "Skipping /dev/$dev: has mounted partitions"
@@ -765,7 +780,16 @@ PYEOF
     
     log_success "Persistent interface config written."
 
-    # Update the on-disk resolv.conf: Controller first, public resolvers as fallback
+    # Update the on-disk resolv.conf: Controller first, public resolvers
+    # as fallback.
+    #
+    # The file may be immutable from a previous run of this script. Clear
+    # the attribute first so rm and tee can proceed. The attribute is
+    # re-applied at the end of this block.
+    if lsattr /etc/resolv.conf 2>/dev/null | grep -q 'i'; then
+        sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+    fi
+
     sudo rm -f /etc/resolv.conf
     sudo tee /etc/resolv.conf > /dev/null <<EOF
 # Managed by bootstrap-node.sh
@@ -776,16 +800,39 @@ options timeout:1 attempts:1
 EOF
     log_success "Persistent /etc/resolv.conf written (controller + public fallback)."
 
-    # Mark resolv.conf immutable so dhclient and any other userspace
-    # daemon cannot silently overwrite it. On Debian Buster the file is
-    # a regular file, and dhclient rewrites it on every lease event and
-    # on every boot, wiping the controller DNS entry and leaving the
-    # node unable to resolve the controller.
+    # Protect the file from DHCP rewrites, but ONLY if the system does
+    # not use resolvconf or systemd-resolved to manage it.
     #
-    # The matching removal lives in uninstall-bootstrap-node.sh, which
-    # clears the attribute before its own teardown.
-    sudo chattr +i /etc/resolv.conf 2>/dev/null || \
-        log_warn "Could not set immutable attribute on /etc/resolv.conf."
+    # If resolvconf is present and active, it tries to rewrite
+    # /etc/resolv.conf each time ifupdown brings up an interface with a
+    # dns-nameservers line. Making the file immutable at that point makes
+    # resolvconf fail, which makes ifup fail, which makes
+    # networking.service report failure at every boot. The node still
+    # has its IP, but the boot sequence is left with a failed unit and
+    # some services may not start.
+    #
+    # Detect resolvconf and systemd-resolved and skip the immutable flag
+    # when either is in use. The DNS entry is still rewritten on every
+    # bootstrap run, which is enough for this deployment.
+    RESOLV_MANAGED=false
+    if dpkg -l resolvconf 2>/dev/null | grep -q '^ii'; then
+        RESOLV_MANAGED=true
+        log_info "resolvconf detected; skipping immutable flag on /etc/resolv.conf."
+    fi
+    if systemctl is-enabled systemd-resolved 2>/dev/null | grep -q enabled; then
+        RESOLV_MANAGED=true
+        log_info "systemd-resolved detected; skipping immutable flag on /etc/resolv.conf."
+    fi
+    if [ -L /etc/resolv.conf ]; then
+        RESOLV_MANAGED=true
+        log_info "/etc/resolv.conf is a symlink; skipping immutable flag."
+    fi
+
+    if [ "$RESOLV_MANAGED" = false ]; then
+        sudo chattr +i /etc/resolv.conf 2>/dev/null || \
+            log_warn "Could not set immutable attribute on /etc/resolv.conf."
+        log_info "Set immutable attribute on /etc/resolv.conf."
+    fi
 
     # No iptables rules are required; the static default route via the
     # controller handles northbound traffic.
