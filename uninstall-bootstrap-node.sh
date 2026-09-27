@@ -121,14 +121,23 @@ if prompt_yes_no "Phase 3: Clean compiled gRPC stubs and log symlinks (preserves
 fi
 
 # ---------------------------------------------------------------------------
-# --- Phase 4: Network Configuration (intentionally preserved) ---
+# --- Phase 4: Network Configuration (preserved, with one exception) ---
 #
 # The teardown does not modify the host's network configuration. The
-# interface settings, static routes, and /etc/resolv.conf written by the
-# bootstrap are left in place so the node stays reachable and no reboot
-# is required. Re-running the bootstrap will overwrite them if needed.
+# interface settings and static routes written by the bootstrap are left
+# in place so the node stays reachable and no reboot is required.
+#
+# The one exception is the immutable attribute the bootstrap sets on
+# /etc/resolv.conf. That attribute would otherwise block any future
+# manual edit or re-provisioning, so it is cleared here even though the
+# file's contents are left untouched.
 # ---------------------------------------------------------------------------
-log_info "Phase 4: Network configuration preserved (not modified)."
+log_info "Phase 4: Network configuration preserved."
+
+if lsattr /etc/resolv.conf 2>/dev/null | grep -q 'i'; then
+    log_info "Clearing immutable attribute on /etc/resolv.conf..."
+    sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+fi
 
 # ---------------------------------------------------------------------------
 # --- Phase 5: Fallback Route (intentionally preserved) ---
@@ -174,10 +183,22 @@ log_success "APT cache restored to eMMC."
 # but on a reused BeagleBone it can silently remove packages another
 # project needs.
 # ---------------------------------------------------------------------------
-log_info "Phase 7: Purging build dependencies (no cascade)..."
+log_info "Phase 7: Purging build dependencies..."
+
+# APT::Get::AutomaticRemove=false prevents apt from also removing the
+# packages that were only pulled in as dependencies of the ones we are
+# purging. That is the desired "no cascade" behaviour.
+#
+# Do NOT add `APT::Get::Remove=false`: that flag disables the remove
+# operation entirely and produces the error
+#   "E: Packages need to be removed but remove is disabled."
+#
+# The purge will still remove bb-cape-overlays if it depends on gpiod —
+# apt must remove a package whose dependency is being purged, or the
+# package state would be inconsistent. That is unavoidable without
+# excluding gpiod from the purge list.
 if sudo apt-get purge -y \
         -o APT::Get::AutomaticRemove=false \
-        -o APT::Get::Remove=false \
         golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod; then
     log_success "Packages purged."
 else
