@@ -202,6 +202,8 @@ SRC_MARKER="/etc/network/.quantum_managed_source_line"
 # bootstrap repair that case automatically.
 NET_INSTALLED=1
 if [ -f "$IFACE_CONF" ] && \
+   grep -qE '^[[:space:]]*(auto|allow-hotplug)[[:space:]]' "$IFACE_CONF" && \
+   grep -qE '^[[:space:]]*iface[[:space:]]' "$IFACE_CONF" && \
    grep -qE '^source(-directory)?[[:space:]]+/etc/network/interfaces\.d' /etc/network/interfaces 2>/dev/null; then
     NET_INSTALLED=0
 fi
@@ -210,10 +212,19 @@ if should_run_phase "Phase 0 (Network Configuration)" "$NET_INSTALLED"; then
     log_info "Preparing network configuration..."
 
     # --- Detect primary network interface ---
-    PRIMARY_IF=$(ip -o -4 route show to default 2>/dev/null | awk '{print $5}' | head -n1)
+    # Prefer the interface the kernel would actually use to reach the
+    # outside world. Fall back to the first UP, non-virtual, non-lo link.
+    # Never trust /etc/network/interfaces — it may already have been
+    # rewritten by a previous run.
+    PRIMARY_IF=$(ip -o route get 1.1.1.1 2>/dev/null \
+        | awk '{for (i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
     if [ -z "$PRIMARY_IF" ]; then
-        PRIMARY_IF=$(ip -o link show 2>/dev/null | awk -F': ' \
-            '$2 != "lo" && $2 !~ /^(docker|veth|br-)/ {print $2; exit}')
+        PRIMARY_IF=$(ip -o -4 route show to default 2>/dev/null \
+            | awk '{print $5}' | head -n1)
+    fi
+    if [ -z "$PRIMARY_IF" ]; then
+        PRIMARY_IF=$(ip -o link show up 2>/dev/null | awk -F': ' \
+            '$2 != "lo" && $2 !~ /^(docker|veth|br-|tun|tap)/ {print $2; exit}')
     fi
 
     if [ -z "$PRIMARY_IF" ]; then
@@ -249,36 +260,41 @@ if should_run_phase "Phase 0 (Network Configuration)" "$NET_INSTALLED"; then
             log_info "Controller is on a different subnet; the default route will reach it."
         fi
 
-        # --- Random, persistent, locally-administered unicast MAC ---
+        # Persist the random MAC separately so that a broken/removed
+        # interfaces.d/quantum-node cannot cause us to roll a new MAC.
+        MAC_STORE="/etc/network/.quantum_mac"
         RANDOM_MAC=""
-        if [ -f "$IFACE_CONF" ]; then
+        if [ -f "$MAC_STORE" ]; then
+            RANDOM_MAC=$(sudo cat "$MAC_STORE" 2>/dev/null | tr -d '[:space:]')
+        fi
+        if [ -z "$RANDOM_MAC" ] && [ -f "$IFACE_CONF" ]; then
             RANDOM_MAC=$(grep -i "hwaddress ether" "$IFACE_CONF" 2>/dev/null | awk '{print $3}')
         fi
         if [ -z "$RANDOM_MAC" ]; then
-            # First octet 02 => locally administered + unicast (bit0=0, bit1=1)
             RANDOM_MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' \
                 $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)) \
                 $((RANDOM % 256)) $((RANDOM % 256)))
-            log_info "Generated new random MAC: $RANDOM_MAC"
+            echo "$RANDOM_MAC" | sudo tee "$MAC_STORE" > /dev/null
+            sudo chmod 644 "$MAC_STORE"
+            log_info "Generated new random MAC: $RANDOM_MAC (stored at $MAC_STORE)"
         else
-            log_info "Reusing existing persistent MAC from $IFACE_CONF: $RANDOM_MAC"
+            log_info "Reusing persistent MAC: $RANDOM_MAC"
         fi
 
         NET_CONFIG_PENDING="true"
 
-        # --- Session-only fallback so apt still works during this run ---
-        if ! ping -c 2 -W 2 8.8.8.8 > /dev/null 2>&1; then
-            if ping -c 1 -W 1 10.0.0.1 > /dev/null 2>&1; then
-                sudo ip route add default via 10.0.0.1 || true
-                log_success "Temporary fallback default route via 10.0.0.1 added (session only)."
-            else
-                log_warn "Gateway 10.0.0.1 not reachable; will rely on existing link."
-            fi
-
-            if ! grep -q "8.8.8.8" /etc/resolv.conf 2>/dev/null; then
-                echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf > /dev/null
-                log_success "Temporary public DNS written to /etc/resolv.conf (session only)."
-            fi
+        # We deliberately do NOT add a fallback default route here.
+        # On a BeagleBone that already has a working default route, adding
+        # a second default via a hardcoded gateway can shadow the real one
+        # and take the node off the network for the rest of the session.
+        # If apt needs DNS during this run, it will use whatever the
+        # currently active config provides; if that fails, we simply warn
+        # and continue. The persistent config is written at the end.
+        if ! getent hosts deb.debian.org >/dev/null 2>&1; then
+            log_warn "DNS is currently not resolving. apt may not work during this run."
+            log_warn "Not touching routes or /etc/resolv.conf; the persistent"
+            log_warn "config is applied at the end of the script and takes effect"
+            log_warn "on the next reboot."
         fi
     fi
 fi
@@ -738,9 +754,20 @@ if [ "$NET_CONFIG_PENDING" = "true" ] && [ -n "$PRIMARY_IF" ]; then
     #   3. Remove every source-directory line for interfaces.d and
     #      append a single one at the very end.
     # -----------------------------------------------------------------
+    # Always start from the pristine original. If we start from the
+    # already-normalised file, each run adds another layer of
+    # "# [bootstrap] disabled:" lines and the file grows unbounded.
+    # The backup is made once and reused; re-running bootstrap is then
+    # truly idempotent.
     if [ ! -f "${IFACE_CONF}.main.bak" ]; then
         sudo cp /etc/network/interfaces "${IFACE_CONF}.main.bak"
         log_info "Backed up /etc/network/interfaces to ${IFACE_CONF}.main.bak"
+    else
+        log_info "Restoring pristine /etc/network/interfaces from backup before re-normalising."
+        if ! sudo cp "${IFACE_CONF}.main.bak" /etc/network/interfaces; then
+            log_error "Could not restore /etc/network/interfaces from backup. Aborting Phase 6."
+            exit 1
+        fi
     fi
 
     log_info "Normalising /etc/network/interfaces..."
@@ -757,8 +784,16 @@ for line in lines:
     s = line.rstrip("\n")
     t = s.strip()
 
+    # Blank lines and pure comments end a stanza.
+    if not t or t.startswith("#"):
+        in_disabled_block = False
+        out.append(line)
+        continue
+
     new_stanza = bool(re.match(
         r"^(auto|iface|source|source-directory|mapping|allow-)\b", t))
+    if new_stanza:
+        in_disabled_block = False
 
     if re.match(rf"^auto\s+{re.escape(iface)}\s*$", t) or \
        re.match(rf"^iface\s+{re.escape(iface)}\b", t):
@@ -766,19 +801,17 @@ for line in lines:
         in_disabled_block = True
         continue
 
-    if new_stanza:
-        in_disabled_block = False
-
     if in_disabled_block and (s.startswith(" ") or s.startswith("\t")):
         out.append("# " + s + "\n")
         continue
 
     if re.match(r"^source(-directory)?\s+/etc/network/interfaces\.d", t):
-        out.append("# [bootstrap] removed (re-added at end): " + s + "\n")
+        # Drop the old source line entirely; we add exactly one at the end.
         continue
 
     out.append(line)
 
+# Exactly one source-directory directive, at the very end.
 out.append("\n# [bootstrap] interfaces.d must be read last so it wins.\n")
 out.append("source-directory /etc/network/interfaces.d\n")
 
@@ -804,6 +837,7 @@ PYEOF
     # as this node — that is the only case where the kernel's
     # directly-connected route would try to reach the controller over L2
     # and fail because the controller is actually behind the router.
+    NEW_CONF=$(mktemp)
     {
         echo "# Quantum Node Switching - managed by bootstrap-node.sh"
         echo "# Node: $DEVICE_IP/$DEVICE_PREFIX   Router: $ROUTER_IP   Controller: $CONTROLLER_IP"
@@ -821,9 +855,18 @@ PYEOF
             echo "    up   ip route add $CONTROLLER_IP/32 via $ROUTER_IP || true"
             echo "    down ip route del $CONTROLLER_IP/32 via $ROUTER_IP || true"
         fi
-    } | sudo tee "$IFACE_CONF" > /dev/null
-    
-    log_success "Persistent interface config written."
+    } > "$NEW_CONF"
+
+    if sudo test -f "$IFACE_CONF" && sudo diff -q "$NEW_CONF" "$IFACE_CONF" >/dev/null 2>&1; then
+        log_info "Interface config is already up to date; not rewriting and not rebooting for it."
+        NET_CONFIG_PENDING="false"
+        rm -f "$NEW_CONF"
+    else
+        sudo install -m 0644 -o root -g root "$NEW_CONF" "$IFACE_CONF"
+        rm -f "$NEW_CONF"
+        log_success "Persistent interface config written."
+        NET_CONFIG_PENDING="true"
+    fi
 
     # Update the on-disk resolv.conf: Controller first, public resolvers
     # as fallback.
@@ -900,12 +943,16 @@ echo -e "${GREEN}====================================================${NC}"
 # no interruption.
 # ---------------------------------------------------------------------------
 if [ "$NET_CONFIG_PENDING" = "true" ]; then
-    log_warn "Network configuration was written; a reboot is required to apply it."
-    sync
-    sleep 3
-    log_warn "If this is a remote SSH session, it will now disconnect."
-    sleep 2
-    sudo reboot -f
+    if [ "${NO_REBOOT:-0}" = "1" ]; then
+        log_warn "NO_REBOOT=1 set: skipping reboot. Reboot manually to apply network config."
+    else
+        log_warn "Network configuration was written; a reboot is required to apply it."
+        sync
+        sleep 3
+        log_warn "If this is a remote SSH session, it will now disconnect."
+        sleep 2
+        sudo reboot -f
+    fi
 else
     log_success "No network changes were made in this run; skipping reboot."
     log_info "Node bootstrap complete."
