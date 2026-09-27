@@ -112,6 +112,51 @@ check_and_install() {
 echo -e "${YELLOW}=== Quantum Node Switching Agent Setup ===${NC}"
 
 # ---------------------------------------------------------------------------
+# Disable the BeagleBone eMMC flasher trigger.
+#
+# The eMMC ships with /boot/uEnv.txt containing:
+#   cmdline=init=/usr/sbin/init-beagle-flasher
+#
+# When active, this line causes the board to reflash its eMMC from the SD
+# card on a subsequent boot, IF the SD is detected in time and contains a
+# flasher image. SD detection is non-deterministic on the AM335x, so the
+# flash can fire on the first reboot, the second, or never. This is the
+# classic "worked once, then died after another reboot" pattern.
+#
+# The bootstrap wipes the SD's boot sector but cannot wipe the SD's
+# filesystem, so a filesystem-based flasher marker survives. The trigger
+# on the eMMC side is the reliable place to disable.
+#
+# To deliberately reflash the eMMC, run with:
+#   KEEP_FLASHER=1 ./bootstrap-node.sh
+# and this block is skipped.
+# ---------------------------------------------------------------------------
+if [ "${KEEP_FLASHER:-0}" != "1" ]; then
+    if [ -f /boot/uEnv.txt ]; then
+        if grep -qE '^[[:space:]]*cmdline=init=/usr/sbin/init-beagle-flasher' /boot/uEnv.txt; then
+            log_warn "eMMC flasher trigger is active. Disabling so the next boot cannot reflash."
+            ts=$(date +%Y%m%d%H%M%S)
+            sudo cp /boot/uEnv.txt "/boot/uEnv.txt.bak.$ts"
+            sudo sed -i 's|^[[:space:]]*\(cmdline=init=/usr/sbin/init-beagle-flasher.*\)|# [bootstrap] disabled: \1|' /boot/uEnv.txt
+
+            # Confirm the change actually landed before proceeding.
+            if ! grep -qE '^[[:space:]]*# \[bootstrap\] disabled:.*init-beagle-flasher' /boot/uEnv.txt; then
+                log_error "Failed to disable the flasher trigger in /boot/uEnv.txt."
+                log_error "Check that /boot is not mounted read-only:"
+                log_error "  mount | grep ' /boot '"
+                log_error "Refusing to continue; the next boot may overwrite this system."
+                exit 1
+            fi
+            log_success "Flasher trigger disabled. Backup saved as /boot/uEnv.txt.bak.$ts"
+        else
+            log_info "eMMC flasher trigger is not present (or already disabled)."
+        fi
+    else
+        log_warn "/boot/uEnv.txt not found; cannot verify flasher state."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Design B: the SD card is optional.
 #
 # The venv is the one thing the agents cannot run without, and it now stays
