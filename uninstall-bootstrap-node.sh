@@ -133,10 +133,16 @@ fi
 # file's contents are left untouched.
 # ---------------------------------------------------------------------------
 log_info "Phase 4: Network configuration preserved."
+log_info "  (Set RESTORE_NETWORK=1 to revert /etc/network/interfaces on teardown.)"
 
 if lsattr /etc/resolv.conf 2>/dev/null | grep -q 'i'; then
     log_info "Clearing immutable attribute on /etc/resolv.conf..."
-    sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+    if ! sudo chattr -i /etc/resolv.conf 2>/dev/null; then
+        log_warn "Failed to clear immutable attribute on /etc/resolv.conf."
+        log_warn "  The file is on a filesystem that does not support chattr,"
+        log_warn "  or the operation was refused. Manually check with:"
+        log_warn "    lsattr /etc/resolv.conf"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -279,15 +285,54 @@ fi
 # original line makes the board ready to be reflashed by a future SD card
 # if the operator wants to.
 # ---------------------------------------------------------------------------
+# Restore the flasher trigger ONLY if the user explicitly asks for it.
+# The oldest backup is the one from before any bootstrap run, and is the
+# only one that actually has the flasher enabled. Silently restoring it
+# while the SD card is still inserted can cause the eMMC to be reflashed
+# on the next boot.
 if [ -f /boot/uEnv.txt ]; then
-    latest_backup=$(ls -t /boot/uEnv.txt.bak.* 2>/dev/null | head -n1 || true)
-    if [ -n "$latest_backup" ] && [ -f "$latest_backup" ]; then
-        log_info "Restoring flasher trigger from $latest_backup..."
-        sudo cp "$latest_backup" /boot/uEnv.txt
-        log_success "uEnv.txt restored from backup."
+    oldest_backup=$(ls -tr /boot/uEnv.txt.bak.* 2>/dev/null | head -n1 || true)
+    if [ -n "$oldest_backup" ] && [ -f "$oldest_backup" ]; then
+        if [ "${RESTORE_FLASHER:-0}" = "1" ]; then
+            log_warn "RESTORE_FLASHER=1: restoring flasher trigger from $oldest_backup."
+            log_warn "Remove the SD card BEFORE rebooting if you do not want a reflash."
+            sudo cp "$oldest_backup" /boot/uEnv.txt
+            log_success "uEnv.txt restored (flasher re-enabled)."
+        else
+            log_info "Flasher trigger left disabled (safer)."
+            log_info "  Set RESTORE_FLASHER=1 to re-enable it from $oldest_backup."
+        fi
     fi
 fi
 
+# ---------------------------------------------------------------------------
+# --- Phase 10: Restore original /etc/network/interfaces (optional) ---
+# Bootstrap normalises /etc/network/interfaces by commenting out any
+# auto/iface block for the primary NIC and appending a single
+# source-directory line. That is intentional while the node is being
+# managed, but on a full teardown it should be reverted so the host
+# behaves like a stock image again.
+#
+# This is OPT-IN (RESTORE_NETWORK=1) because reverting it can drop the
+# SSH session the operator is currently using.
+# ---------------------------------------------------------------------------
+if [ "${RESTORE_NETWORK:-0}" = "1" ]; then
+    IFACE_CONF="/etc/network/interfaces.d/quantum-node"
+    if [ -f "${IFACE_CONF}.main.bak" ]; then
+        log_warn "RESTORE_NETWORK=1: restoring /etc/network/interfaces from backup."
+        sudo cp "${IFACE_CONF}.main.bak" /etc/network/interfaces
+        log_success "Restored /etc/network/interfaces."
+    fi
+    if [ -f "$IFACE_CONF" ]; then
+        sudo rm -f "$IFACE_CONF"
+        log_success "Removed $IFACE_CONF."
+    fi
+    if [ -f "/etc/network/.quantum_mac" ]; then
+        sudo rm -f "/etc/network/.quantum_mac"
+    fi
+    log_warn "A reboot is required for the network configuration to revert."
+    log_warn "Reconnect after reboot using the interface's DHCP address."
+fi
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Teardown Complete! Repository files preserved. ${NC}"
 echo -e "${GREEN}====================================================${NC}"
