@@ -17,6 +17,28 @@ log_success() { echo -e "${GREEN}[SUCCESS] $1${NC}"; }
 log_warn()    { echo -e "${YELLOW}[WARNING] $1${NC}"; }
 log_error()   { echo -e "${RED}[ERROR] $1${NC}"; }
 
+# ---------------------------------------------------------------------------
+# Ensure /var/cache/apt/archives is usable before any apt operation.
+#
+# A previous bootstrap run may have left /var/cache/apt/archives as a
+# symlink to /mnt/sdcard/apt-cache. If the SD card is not mounted at
+# this moment, the symlink is dangling and every apt command fails with:
+#   E: Archives directory /var/cache/apt/archives/partial is missing.
+#
+# Restore the local eMMC directory in that case. Phase 0.8 will
+# re-create the SD symlink later if the SD is present and mounted.
+# ---------------------------------------------------------------------------
+if [ -L /var/cache/apt/archives ] && [ ! -d /var/cache/apt/archives ]; then
+    log_warn "APT cache symlink is dangling (SD not mounted); restoring local cache."
+    sudo rm -f /var/cache/apt/archives
+fi
+
+if [ ! -d /var/cache/apt/archives/partial ]; then
+    log_info "Recreating default internal APT cache directories..."
+    sudo mkdir -p /var/cache/apt/archives/partial
+    sudo chown -R _apt:root /var/cache/apt/archives
+fi
+
 prompt_yes_no() {
     while true; do
         echo -e -n "$1 [y/N]: "
