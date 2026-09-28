@@ -205,7 +205,7 @@ log_info "Phase 7: Purging build dependencies..."
 # excluding gpiod from the purge list.
 if sudo apt-get purge -y \
         -o APT::Get::AutomaticRemove=false \
-        golang-go protobuf-compiler gpiod libgpiod-dev python3-libgpiod; then
+        golang-go protobuf-compiler; then
     log_success "Packages purged."
 else
     log_warn "Package purge failed; see the apt output above."
