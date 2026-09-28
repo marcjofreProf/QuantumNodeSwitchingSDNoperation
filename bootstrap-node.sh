@@ -458,31 +458,34 @@ else
             # on the next power cycle. It is safe here because we are
             # about to reformat the whole card.
             # -----------------------------------------------------------------
-            log_info "Wiping $SD_DISK and creating a fresh ext4 partition..."
-            sudo systemctl stop quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
-            sudo umount /mnt/sdcard 2>/dev/null || true
-            sudo umount -l ${SD_DISK}* 2>/dev/null || true
-
-            sudo dd if=/dev/zero of="$SD_DISK" bs=1M count=10 status=none || true
-
-            sudo parted -s "$SD_DISK" mklabel msdos
-            sudo parted -s "$SD_DISK" mkpart primary ext4 0% 100%
-            sudo partprobe "$SD_DISK"
-
-            # Wait for the kernel to publish the new partition node.
-            # udev can take a moment on slower SD cards; use a bounded loop
-            # instead of a fixed sleep.
             SD_TARGET="${SD_DISK}p1"
-            for _ in $(seq 1 10); do
-                [ -b "$SD_TARGET" ] && break
-                sleep 0.5
-            done
+            if [ -b "$SD_TARGET" ] && sudo blkid "$SD_TARGET" 2>/dev/null | grep -q 'TYPE="ext4"'; then
+                log_info "SD $SD_TARGET already has an ext4 filesystem; reusing it."
+            else
+                log_info "Wiping $SD_DISK and creating a fresh ext4 partition..."
+                sudo systemctl stop quantum-grpc-agent quantum-netconf-agent quantum-gnmi-agent quantum-gnoi-agent 2>/dev/null || true
+                sudo umount /mnt/sdcard 2>/dev/null || true
+                sudo umount -l ${SD_DISK}* 2>/dev/null || true
+
+                sudo dd if=/dev/zero of="$SD_DISK" bs=1M count=10 status=none || true
+
+                sudo parted -s "$SD_DISK" mklabel msdos
+                sudo parted -s "$SD_DISK" mkpart primary ext4 0% 100%
+                sudo partprobe "$SD_DISK"
+
+                for _ in $(seq 1 10); do
+                    [ -b "$SD_TARGET" ] && break
+                    sleep 0.5
+                done
+            fi
 
             if [ ! -b "$SD_TARGET" ]; then
                 log_error "Partition $SD_TARGET did not appear after partprobe."
                 log_error "  SD offload skipped; logs and apt cache stay on eMMC."
             else
-                sudo mkfs.ext4 -F "$SD_TARGET"
+                if ! sudo blkid "$SD_TARGET" 2>/dev/null | grep -q 'TYPE="ext4"'; then
+                    sudo mkfs.ext4 -F "$SD_TARGET"
+                fi
 
                 sudo mkdir -p /mnt/sdcard
                 if ! sudo mount "$SD_TARGET" /mnt/sdcard; then
@@ -896,52 +899,35 @@ PYEOF
     # The file may be immutable from a previous run of this script. Clear
     # the attribute first so rm and tee can proceed. The attribute is
     # re-applied at the end of this block.
-    if lsattr /etc/resolv.conf 2>/dev/null | grep -q 'i'; then
-        sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+    RESOLV_MANAGED=false
+    if [ -L /etc/resolv.conf ]; then
+        RESOLV_MANAGED=true
+        log_info "/etc/resolv.conf is a symlink; leaving it alone."
+    elif dpkg -l resolvconf 2>/dev/null | grep -q '^ii'; then
+        RESOLV_MANAGED=true
+        log_info "resolvconf detected; leaving /etc/resolv.conf alone."
+    elif systemctl is-enabled systemd-resolved 2>/dev/null | grep -q enabled; then
+        RESOLV_MANAGED=true
+        log_info "systemd-resolved detected; leaving /etc/resolv.conf alone."
     fi
 
-    sudo rm -f /etc/resolv.conf
-    sudo tee /etc/resolv.conf > /dev/null <<EOF
+    if [ "$RESOLV_MANAGED" = false ]; then
+        if lsattr /etc/resolv.conf 2>/dev/null | grep -q 'i'; then
+            sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+        fi
+        sudo rm -f /etc/resolv.conf
+        sudo tee /etc/resolv.conf > /dev/null <<EOF
 # Managed by bootstrap-node.sh
 nameserver $CONTROLLER_IP
 nameserver 8.8.8.8
 nameserver 1.1.1.1
 options timeout:1 attempts:1
 EOF
-    log_success "Persistent /etc/resolv.conf written (controller + public fallback)."
-
-    # Protect the file from DHCP rewrites, but ONLY if the system does
-    # not use resolvconf or systemd-resolved to manage it.
-    #
-    # If resolvconf is present and active, it tries to rewrite
-    # /etc/resolv.conf each time ifupdown brings up an interface with a
-    # dns-nameservers line. Making the file immutable at that point makes
-    # resolvconf fail, which makes ifup fail, which makes
-    # networking.service report failure at every boot. The node still
-    # has its IP, but the boot sequence is left with a failed unit and
-    # some services may not start.
-    #
-    # Detect resolvconf and systemd-resolved and skip the immutable flag
-    # when either is in use. The DNS entry is still rewritten on every
-    # bootstrap run, which is enough for this deployment.
-    RESOLV_MANAGED=false
-    if dpkg -l resolvconf 2>/dev/null | grep -q '^ii'; then
-        RESOLV_MANAGED=true
-        log_info "resolvconf detected; skipping immutable flag on /etc/resolv.conf."
-    fi
-    if systemctl is-enabled systemd-resolved 2>/dev/null | grep -q enabled; then
-        RESOLV_MANAGED=true
-        log_info "systemd-resolved detected; skipping immutable flag on /etc/resolv.conf."
-    fi
-    if [ -L /etc/resolv.conf ]; then
-        RESOLV_MANAGED=true
-        log_info "/etc/resolv.conf is a symlink; skipping immutable flag."
-    fi
-
-    if [ "$RESOLV_MANAGED" = false ]; then
         sudo chattr +i /etc/resolv.conf 2>/dev/null || \
             log_warn "Could not set immutable attribute on /etc/resolv.conf."
-        log_info "Set immutable attribute on /etc/resolv.conf."
+        log_success "Persistent /etc/resolv.conf written."
+    else
+        log_success "/etc/resolv.conf is managed externally; not touching it."
     fi
 
     # No iptables rules are required; the static default route via the
