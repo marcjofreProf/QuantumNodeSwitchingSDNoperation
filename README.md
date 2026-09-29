@@ -48,3 +48,16 @@ If you need to update the version of gRPC or rebuild the wheels for any reason, 
    cd builds
    sudo chmod +x ./BBBgrpcioCrossLinkingBuild.sh
    ./BBBgrpcioCrossLinkingBuild.sh
+
+### Hardware Loopback Test BBB
+Run from repo home directory:
+```bash
+./test/test_manual_switching_hardware.py
+```
+
+Probe: **P8_12** (gpiochip1:12). Trigger rising edge ~1.5 V, ~20 ms/div.
+Expected: 4 strobe pulses per run (~50 ms HIGH each), from `driver/pin_switching_mappings.bbb.json`.
+
+Pinmux: not required on tested BBB image. If P8_12 stays silent:
+
+    config-pin p8.12 gpio
