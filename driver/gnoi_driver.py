@@ -5,7 +5,7 @@ import logging
 import gpiod
 
 class OpticalMatrixDriver:
-    def __init__(self, config_path="driver/gnoi_pin_mappings.json"):
+    def __init__(self, config_path="driver/pin_switching_mappings.bbb.json"):
         self.logger = logging.getLogger("OpticalMatrixDriver")
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         
