@@ -7,7 +7,7 @@ import gpiod
 logger = logging.getLogger("NetconfHardwareDriver")
 
 class NetconfHardwareDriver:
-    def __init__(self, config_path="driver/netconf_pin_mappings.json"):
+    def __init__(self, config_path="driver/pin_switching_mappings.bbb.json"):
         self.config_path = config_path
         self.config = self._load_config()
         self.gpio_map = self.config.get("gpio_port_map", {})
@@ -23,6 +23,10 @@ class NetconfHardwareDriver:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"[NETCONF HAL] Error reading {self.config_path}: {e}")
+        logger.warning(
+            f"[NETCONF HAL] Config path {self.config_path} not found. "
+            f"Using fallback defaults."
+        )
         return {
             "switch_type": "MEMS-Optical",
             "gpio_port_map": {"port_A_in": 60, "port_B_out": 48, "strobe_pin": 49}
