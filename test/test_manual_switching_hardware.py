@@ -43,12 +43,13 @@ def run_hardware_test():
         ok_on = gnoi_driver.trigger_crossconnect(True)
         print(f"  [gNOI 1A] driver returned: {ok_on}")
         all_ok = all_ok and ok_on
-        time.sleep(2)
+        time.sleep(1)
 
         print("  [gNOI 1B] Disengaging MEMS Crossconnect (OFF)...")
         ok_off = gnoi_driver.trigger_crossconnect(False)
         print(f"  [gNOI 1B] driver returned: {ok_off}")
         all_ok = all_ok and ok_off
+        time.sleep(2)
 
         if all_ok:
             print("  [SUCCESS] gNOI Hardware Driver stage completed.")
@@ -84,13 +85,14 @@ def run_hardware_test():
         ok_on = netconf_driver.set_netconf_switch_state(True)
         print(f"  [NETCONF 2A] driver returned: {ok_on}")
         all_ok = all_ok and ok_on
-        time.sleep(2)
+        time.sleep(1)
 
         print("  [NETCONF 2B] Disabling NETCONF Switch State (OFF)...")
         ok_off = netconf_driver.set_netconf_switch_state(False)
         print(f"  [NETCONF 2B] driver returned: {ok_off}")
         all_ok = all_ok and ok_off
-
+        time.sleep(2)
+        
         if ok_on and ok_off:
             print("  [SUCCESS] NETCONF Hardware Driver stage completed.")
         else:
