@@ -276,8 +276,14 @@ if should_run_phase "Phase 0 (Network Configuration)" "$NET_INSTALLED"; then
         # already reaches it and no extra route is needed.
         NEED_HOST_ROUTE=false
         if in_subnet "$CONTROLLER_IP" "$DEVICE_IP" "$DEVICE_PREFIX"; then
-            NEED_HOST_ROUTE=true
-            log_info "Controller is on the same subnet as this node; a /32 route via the default router will be added."
+            if [ "${SKIP_HOST_ROUTE:-0}" = "1" ]; then
+                log_warn "SKIP_HOST_ROUTE=1: not adding /32 route to controller."
+            elif ping -c1 -W1 -I "$PRIMARY_IF" "$CONTROLLER_IP" >/dev/null 2>&1; then
+                log_info "Controller answers directly on L2; not adding /32 route."
+            else
+                NEED_HOST_ROUTE=true
+                log_info "Controller is not on this L2; adding /32 route via $ROUTER_IP."
+            fi
         else
             log_info "Controller is on a different subnet; the default route will reach it."
         fi
