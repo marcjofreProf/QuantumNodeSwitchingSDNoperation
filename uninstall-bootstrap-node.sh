@@ -316,22 +316,30 @@ fi
 # This is OPT-IN (RESTORE_NETWORK=1) because reverting it can drop the
 # SSH session the operator is currently using.
 # ---------------------------------------------------------------------------
-if [ "${RESTORE_NETWORK:-0}" = "1" ]; then
-    IFACE_CONF="/etc/network/interfaces.d/quantum-node"
-    if [ -f "${IFACE_CONF}.main.bak" ]; then
-        log_warn "RESTORE_NETWORK=1: restoring /etc/network/interfaces from backup."
-        sudo cp "${IFACE_CONF}.main.bak" /etc/network/interfaces
-        log_success "Restored /etc/network/interfaces."
-    fi
-    if [ -f "$IFACE_CONF" ]; then
-        sudo rm -f "$IFACE_CONF"
-        log_success "Removed $IFACE_CONF."
-    fi
-    if [ -f "/etc/network/.quantum_mac" ]; then
-        sudo rm -f "/etc/network/.quantum_mac"
-    fi
+IFACE_CONF="/etc/network/interfaces.d/quantum-node"
+
+# Always delete the files this script family created — they are ours, and
+# leaving them behind causes the next bootstrap to silently reuse the old
+# IP/MAC/route. That is the "uninstall + reinstall did not help" failure.
+if [ -f "$IFACE_CONF" ]; then
+    log_info "Removing $IFACE_CONF..."
+    ctrl=$(awk -F'[ /]' '/Controller:/{print $3; exit}' "$IFACE_CONF" 2>/dev/null)
+    [ -n "$ctrl" ] && sudo ip route del "${ctrl}/32" 2>/dev/null || true
+    sudo rm -f "$IFACE_CONF"
+fi
+if [ -f "/etc/network/.quantum_mac" ]; then
+    log_info "Removing /etc/network/.quantum_mac..."
+    sudo rm -f "/etc/network/.quantum_mac"
+fi
+
+# Restoring the pristine /etc/network/interfaces stays opt-in, because it
+# can drop the SSH session the operator is using.
+if [ "${RESTORE_NETWORK:-0}" = "1" ] && [ -f "${IFACE_CONF}.main.bak" ]; then
+    log_warn "RESTORE_NETWORK=1: restoring /etc/network/interfaces from backup."
+    sudo cp "${IFACE_CONF}.main.bak" /etc/network/interfaces
+    sudo rm -f "${IFACE_CONF}.main.bak"
+    log_success "Restored /etc/network/interfaces."
     log_warn "A reboot is required for the network configuration to revert."
-    log_warn "Reconnect after reboot using the interface's DHCP address."
 fi
 echo -e "${GREEN}====================================================${NC}"
 echo -e "${GREEN} Teardown Complete! Repository files preserved. ${NC}"
